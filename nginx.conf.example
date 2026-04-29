@@ -1,9 +1,21 @@
 server {
     listen 443 ssl;
-    server_name api.yourdomain.com;
+    server_name huzhongxiang.cloud;
 
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
+    ssl_certificate /root/.openclaw/workspace/openclaw-router/ssl/huzhongxiang.cloud_bundle.pem;
+    ssl_certificate_key /root/.openclaw/workspace/openclaw-router/ssl/huzhongxiang.cloud.key;
+
+    # SSL 优化
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    # 安全头
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
@@ -15,9 +27,16 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # SSE streaming support
+        # SSE streaming support (必须关闭缓冲)
         proxy_buffering off;
         proxy_cache off;
         proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
     }
+}
+
+server {
+    listen 80;
+    server_name huzhongxiang.cloud;
+    return 301 https://$host$request_uri;
 }
