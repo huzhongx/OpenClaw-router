@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenClaw Router</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0f1117; --bg2: #1a1b26; --bg3: #24253a;
+      --text: #c0caf5; --text2: #a9b1d6; --text3: #565f89;
+      --accent: #7aa2f7; --green: #9ece6a; --red: #f7768e; --yellow: #e0af68; --cyan: #7dcfff;
+      --border: #2f3348; --radius: 8px;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    a { color: var(--accent); text-decoration: none; }
+
+    /* Layout */
+    .layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 220px; background: var(--bg2); border-right: 1px solid var(--border); padding: 20px 0; flex-shrink: 0; }
+    .sidebar .logo { padding: 0 20px 20px; font-size: 18px; font-weight: 700; color: var(--accent); border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+    .sidebar a { display: block; padding: 10px 20px; color: var(--text2); transition: all .15s; font-size: 14px; }
+    .sidebar a:hover { background: var(--bg3); color: var(--text); }
+    .sidebar a.active { background: var(--bg3); color: var(--accent); border-left: 3px solid var(--accent); }
+    .main { flex: 1; padding: 24px; overflow-y: auto; max-height: 100vh; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .header h1 { font-size: 22px; font-weight: 600; }
+    .header .user-info { font-size: 13px; color: var(--text3); }
+    .header .user-info span { color: var(--text2); }
+
+    /* Cards */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+    .card .label { font-size: 12px; color: var(--text3); text-transform: uppercase; margin-bottom: 8px; }
+    .card .value { font-size: 28px; font-weight: 700; }
+    .card .value.green { color: var(--green); }
+    .card .value.yellow { color: var(--yellow); }
+
+    /* Table */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 10px 12px; color: var(--text3); font-weight: 500; border-bottom: 1px solid var(--border); background: var(--bg2); }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    tr:hover td { background: var(--bg2); }
+
+    /* Buttons */
+    .btn { display: inline-block; padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); cursor: pointer; font-size: 13px; transition: all .15s; }
+    .btn:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .btn.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .btn.primary:hover { opacity: .85; }
+    .btn.danger { border-color: var(--red); color: var(--red); }
+    .btn.danger:hover { background: var(--red); color: var(--bg); }
+    .btn.sm { padding: 4px 10px; font-size: 12px; }
+
+    /* Form */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.6); z-index: 100; justify-content: center; align-items: center; }
+    .modal-overlay.active { display: flex; }
+    .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; min-width: 400px; max-width: 600px; }
+    .modal h2 { margin-bottom: 16px; font-size: 18px; }
+    .modal .field { margin-bottom: 12px; }
+    .modal label { display: block; font-size: 12px; color: var(--text3); margin-bottom: 4px; }
+    .modal input, .modal select, .modal textarea { width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 14px; }
+    .modal .actions { margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end; }
+
+    /* Status badges */
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+    .badge.active { background: rgba(158,206,106,.15); color: var(--green); }
+    .badge.inactive { background: rgba(247,118,142,.15); color: var(--red); }
+    .badge.success { background: rgba(158,206,106,.15); color: var(--green); }
+    .badge.error { background: rgba(247,118,142,.15); color: var(--red); }
+
+    /* Chart */
+    .chart-container { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px; height: 300px; }
+    .chart-container canvas { width: 100% !important; height: 250px !important; }
+
+    /* Pagination */
+    .pagination { margin-top: 16px; display: flex; gap: 8px; align-items: center; font-size: 13px; }
+    .pagination button { padding: 4px 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; color: var(--text); cursor: pointer; }
+    .pagination button:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* Login */
+    .login-container { display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .login-box { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; width: 360px; }
+    .login-box h1 { text-align: center; color: var(--accent); margin-bottom: 24px; }
+    .login-box .field { margin-bottom: 16px; }
+    .login-box label { display: block; font-size: 12px; color: var(--text3); margin-bottom: 4px; }
+    .login-box input { width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 14px; }
+    .login-box .btn { width: 100%; padding: 10px; }
+    .login-box .error { color: var(--red); font-size: 13px; margin-top: 8px; text-align: center; }
+
+    .hidden { display: none !important; }
+    .toolbar { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+    .toolbar input, .toolbar select { padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; }
+    .empty { text-align: center; color: var(--text3); padding: 40px; }
+  </style>
+</head>
+<body>
+
+<!-- Login Page -->
+<div id="loginPage" class="login-container">
+  <div class="login-box">
+    <h1>OpenClaw Router</h1>
+    <div class="field">
+      <label>Username</label>
+      <input type="text" id="loginUsername" value="admin" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password">
+    </div>
+    <button class="btn primary" onclick="doLogin()">Login</button>
+    <div class="error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="appPage" class="layout hidden">
+  <div class="sidebar">
+    <div class="logo">OpenClaw Router</div>
+    <a href="#/dashboard" data-nav>Dashboard</a>
+    <a href="#/users" data-nav>Users</a>
+    <a href="#/keys" data-nav>API Keys</a>
+    <a href="#/providers" data-nav>Providers</a>
+    <a href="#/models" data-nav>Models</a>
+    <a href="#/routes" data-nav>Routes</a>
+    <a href="#/usage" data-nav>Usage Logs</a>
+    <a href="#/billing" data-nav>Billing</a>
+    <div style="flex:1"></div>
+    <a href="#" onclick="doLogout()" style="color:var(--red)">Logout</a>
+  </div>
+  <div class="main" id="mainContent"></div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<script>
+// ==================== State ====================
+let token = null;
+let admin = null;
+
+// ==================== API ====================
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json', ...opts.headers },
+    credentials: 'same-origin',
+    ...opts,
+  });
+  if (res.status === 401) { showLogin(); throw new Error('Unauthorized'); }
+  return res.json();
+}
+
+// ==================== Auth ====================
+async function doLogin() {
+  const username = document.getElementById('loginUsername').value;
+  const password = document.getElementById('loginPassword').value;
+  try {
+    const data = await api('/admin/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    if (data.success) { showApp(); location.hash = '#/dashboard'; }
+    else { document.getElementById('loginError').textContent = data.error?.message || 'Login failed'; }
+  } catch (e) { document.getElementById('loginError').textContent = 'Connection error'; }
+}
+
+function doLogout() {
+  api('/admin/logout').finally(() => { showLogin(); location.hash = ''; });
+}
+
+function showLogin() {
+  document.getElementById('loginPage').classList.remove('hidden');
+  document.getElementById('appPage').classList.add('hidden');
+}
+
+function showApp() {
+  document.getElementById('loginPage').classList.add('hidden');
+  document.getElementById('appPage').classList.remove('hidden');
+}
+
+// Check session on load
+api('/admin/me').then(data => {
+  if (data.admin) { showApp(); }
+}).catch(() => {});
+
+// Enter key for login
+document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+// ==================== Router ====================
+window.addEventListener('hashchange', handleRoute);
+window.addEventListener('load', () => setTimeout(handleRoute, 100));
+
+function handleRoute() {
+  if (document.getElementById('appPage').classList.contains('hidden')) return;
+
+  document.querySelectorAll('[data-nav]').forEach(a => a.classList.remove('active'));
+  const hash = location.hash || '#/dashboard';
+  document.querySelector(`[href="${hash}"]`)?.classList.add('active');
+
+  const routes = {
+    '#/dashboard': renderDashboard,
+    '#/users': renderUsers,
+    '#/keys': renderKeys,
+    '#/providers': renderProviders,
+    '#/models': renderModels,
+    '#/routes': renderRoutes,
+    '#/usage': renderUsage,
+    '#/billing': renderBilling,
+  };
+
+  const handler = routes[hash];
+  if (handler) handler();
+  else document.getElementById('mainContent').innerHTML = '<div class="empty">Page not found</div>';
+}
+
+// ==================== Modal ====================
+function openModal(html) {
+  document.getElementById('modalContent').innerHTML = html;
+  document.getElementById('modalOverlay').classList.add('active');
+}
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('active');
+}
+document.getElementById('modalOverlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('modalOverlay')) closeModal();
+});
+
+// ==================== Helpers ====================
+function fmt$(cents) { return '$' + (cents / 100).toFixed(2); }
+function fmtNum(n) { return (n || 0).toLocaleString(); }
+function esc(s) { return s ? String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''; }
+function statusBadge(active) { return `<span class="badge ${active ? 'active' : 'inactive'}">${active ? 'Active' : 'Inactive'}</span>`; }
+function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text);
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+// ==================== Pages ====================
+
+async function renderDashboard() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<h1>Loading...</h1>';
+  const [stats, daily] = await Promise.all([api('/admin/dashboard/stats'), api('/admin/dashboard/daily-usage')]);
+
+  c.innerHTML = `
+    <div class="header"><h1>Dashboard</h1><div class="user-info">Admin: <span>${esc(admin?.username || '')}</span></div></div>
+    <div class="cards">
+      <div class="card"><div class="label">Total Users</div><div class="value">${stats.total_users}</div></div>
+      <div class="card"><div class="label">Active API Keys</div><div class="value">${stats.active_keys}</div></div>
+      <div class="card"><div class="label">Requests Today</div><div class="value green">${stats.requests_today}</div></div>
+      <div class="card"><div class="label">Cost Today</div><div class="value yellow">${stats.cost_today_usd}</div></div>
+      <div class="card"><div class="label">Total Requests</div><div class="value">${fmtNum(stats.total_requests)}</div></div>
+      <div class="card"><div class="label">Total Cost</div><div class="value yellow">${stats.total_cost_usd}</div></div>
+    </div>
+    <div class="chart-container"><canvas id="dailyChart"></canvas></div>
+  `;
+
+  // Render chart
+  const ctx = document.getElementById('dailyChart');
+  if (daily.days.length > 0 && ctx) {
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: daily.days.map(d => d.date),
+        datasets: [
+          { label: 'Requests', data: daily.days.map(d => d.requests), backgroundColor: 'rgba(122,162,247,.6)', yAxisID: 'y' },
+          { label: 'Tokens (K)', data: daily.days.map(d => Math.round((d.tokens || 0) / 1000)), backgroundColor: 'rgba(125,207,255,.6)', yAxisID: 'y' },
+          { label: 'Cost ($)', data: daily.days.map(d => (d.cost_cents / 100).toFixed(2)), type: 'line', borderColor: '#e0af68', yAxisID: 'y1', tension: .3 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#a9b1d6' } } },
+        scales: {
+          x: { ticks: { color: '#565f89' }, grid: { color: '#2f3348' } },
+          y: { position: 'left', ticks: { color: '#565f89' }, grid: { color: '#2f3348' } },
+          y1: { position: 'right', ticks: { color: '#e0af68' }, grid: { display: false } },
+        },
+      },
+    });
+  }
+}
+
+// ==================== Users ====================
+async function renderUsers() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<h1>Loading...</h1>';
+  const data = await api('/admin/users');
+
+  c.innerHTML = `
+    <div class="header"><h1>Users</h1><button class="btn primary" onclick="showCreateUserModal()">+ New User</button></div>
+    <table>
+      <tr><th>Name</th><th>Email</th><th>Balance</th><th>Keys</th><th>Status</th><th>Created</th><th>Actions</th></tr>
+      ${data.users.map(u => `
+        <tr>
+          <td>${esc(u.name)}</td>
+          <td>${esc(u.email) || '-'}</td>
+          <td>${fmt$(u.balance_cents)}</td>
+          <td>${u.active_keys || 0}</td>
+          <td>${statusBadge(u.is_active)}</td>
+          <td>${esc(u.created_at?.slice(0, 10))}</td>
+          <td>
+            <button class="btn sm" onclick="showTopUpModal('${u.id}', '${esc(u.name)}')">Top Up</button>
+            <button class="btn sm" onclick="showCreateKeyModal('${u.id}')">+ Key</button>
+          </td>
+        </tr>
+      `).join('')}
+    </table>
+    ${data.users.length === 0 ? '<div class="empty">No users yet</div>' : ''}
+  `;
+}
+
+function showCreateUserModal() {
+  openModal(`
+    <h2>Create User</h2>
+    <div class="field"><label>Name</label><input id="mUserName"></div>
+    <div class="field"><label>Email</label><input id="mUserEmail"></div>
+    <div class="field"><label>Initial Balance (cents)</label><input id="mUserBalance" type="number" value="1000"></div>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="createUser()">Create</button></div>
+  `);
+}
+
+async function createUser() {
+  const name = document.getElementById('mUserName').value;
+  const email = document.getElementById('mUserEmail').value || null;
+  const balance_cents = parseInt(document.getElementById('mUserBalance').value) || 0;
+  await api('/admin/users', { method: 'POST', body: JSON.stringify({ name, email, balance_cents }) });
+  closeModal(); renderUsers();
+}
+
+function showTopUpModal(userId, userName) {
+  openModal(`
+    <h2>Top Up: ${userName}</h2>
+    <div class="field"><label>Amount (cents, e.g. 1000 = $10.00)</label><input id="mTopUpAmount" type="number" value="1000"></div>
+    <div class="field"><label>Description</label><input id="mTopUpDesc" value="Admin top-up"></div>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="doTopUp('${userId}')">Top Up</button></div>
+  `);
+}
+
+async function doTopUp(userId) {
+  const amount_cents = parseInt(document.getElementById('mTopUpAmount').value);
+  const description = document.getElementById('mTopUpDesc').value;
+  await api(`/admin/users/${userId}/topup`, { method: 'POST', body: JSON.stringify({ amount_cents, description }) });
+  closeModal(); renderUsers();
+}
+
+function showCreateKeyModal(userId) {
+  openModal(`
+    <h2>Create API Key</h2>
+    <div class="field"><label>Key Name</label><input id="mKeyName" value="default"></div>
+    <div class="field"><label>Rate Limit (RPM)</label><input id="mKeyRpm" type="number" value="60"></div>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="createKey('${userId}')">Create</button></div>
+  `);
+}
+
+async function createKey(userId) {
+  const name = document.getElementById('mKeyName').value;
+  const rate_limit_rpm = parseInt(document.getElementById('mKeyRpm').value) || 60;
+  const data = await api('/admin/api-keys', { method: 'POST', body: JSON.stringify({ user_id: userId, name, rate_limit_rpm }) });
+  if (data.api_key) {
+    openModal(`
+      <h2>API Key Created</h2>
+      <p style="color:var(--yellow);font-size:13px;margin-bottom:12px;">Copy this key now. It cannot be shown again.</p>
+      <div style="background:var(--bg);padding:12px;border-radius:6px;font-family:monospace;word-break:break-all;font-size:13px;">${esc(data.api_key)}</div>
+      <div class="actions"><button class="btn primary" onclick="copyToClipboard('${data.api_key}');closeModal()">Copy & Close</button></div>
+    `);
+  }
+}
+
+// ==================== API Keys ====================
+async function renderKeys() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<h1>Loading...</h1>';
+  const data = await api('/admin/api-keys');
+
+  c.innerHTML = `
+    <div class="header"><h1>API Keys</h1></div>
+    <table>
+      <tr><th>Prefix</th><th>User</th><th>Name</th><th>RPM</th><th>Last Used</th><th>Status</th><th>Created</th><th>Actions</th></tr>
+      ${data.keys.map(k => `
+        <tr>
+          <td><code>${esc(k.key_prefix)}****</code></td>
+          <td>${esc(k.user_name)}</td>
+          <td>${esc(k.name)}</td>
+          <td>${k.rate_limit_rpm}</td>
+          <td>${esc(k.last_used_at?.slice(0, 16)) || '-'}</td>
+          <td>${statusBadge(k.is_active)}</td>
+          <td>${esc(k.created_at?.slice(0, 10))}</td>
+          <td><button class="btn sm danger" onclick="revokeKey('${k.id}')">Revoke</button></td>
+        </tr>
+      `).join('')}
+    </table>
+    ${data.keys.length === 0 ? '<div class="empty">No API keys yet</div>' : ''}
+  `;
+}
+
+async function revokeKey(id) {
+  if (!confirm('Revoke this API key?')) return;
+  await api(`/admin/api-keys/${id}`, { method: 'DELETE' });
+  renderKeys();
+}
+
+// ==================== Providers ====================
+async function renderProviders() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<h1>Loading...</h1>';
+  const data = await api('/admin/providers');
+
+  c.innerHTML = `
+    <div class="header"><h1>Providers</h1><button class="btn primary" onclick="showCreateProviderModal()">+ Add Provider</button></div>
+    <table>
+      <tr><th>Name</th><th>Type</th><th>Base URL</th><th>API Key</th><th>Priority</th><th>Timeout</th><th>Status</th><th>Actions</th></tr>
+      ${data.providers.map(p => `
+        <tr>
+          <td>${esc(p.name)}</td>
+          <td><code>${esc(p.type)}</code></td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(p.base_url)}</td>
+          <td>${esc(p.api_key_masked) || '<span style="color:var(--text3)">from env</span>'}</td>
+          <td>${p.priority}</td>
+          <td>${p.timeout_ms}ms</td>
+          <td>${statusBadge(p.is_active)}</td>
+          <td>
+            <button class="btn sm" onclick="testProvider('${p.id}')">Test</button>
+            <button class="btn sm" onclick="showEditProviderModal(${JSON.stringify(p).replace(/"/g, '&quot;')})">Edit</button>
+            <button class="btn sm danger" onclick="deleteProvider('${p.id}')">Del</button>
+          </td>
+        </tr>
+      `).join('')}
+    </table>
+  `;
+}
+
+function showCreateProviderModal() {
+  openModal(`
+    <h2>Add Provider</h2>
+    <div class="field"><label>Name</label><input id="mProvName" placeholder="e.g. openai"></div>
+    <div class="field"><label>Type</label><select id="mProvType">
+      <option value="openai">OpenAI</option><option value="anthropic">Anthropic</option>
+      <option value="gemini">Gemini</option><option value="mistral">Mistral</option>
+      <option value="openai-compatible">OpenAI-Compatible</option>
+    </select></div>
+    <div class="field"><label>Base URL</label><input id="mProvUrl" placeholder="https://api.openai.com/v1"></div>
+    <div class="field"><label>API Key (optional, can use env)</label><input id="mProvKey" placeholder="sk-..."></div>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="createProvider()">Add</button></div>
+  `);
+}
+
+async function createProvider() {
+  const name = document.getElementById('mProvName').value;
+  const type = document.getElementById('mProvType').value;
+  const base_url = document.getElementById('mProvUrl').value;
+  const api_key = document.getElementById('mProvKey').value || null;
+  await api('/admin/providers', { method: 'POST', body: JSON.stringify({ name, type, base_url, api_key }) });
+  closeModal(); renderProviders();
+}
+
+function showEditProviderModal(p) {
+  openModal(`
+    <h2>Edit Provider: ${esc(p.name)}</h2>
+    <div class="field"><label>Base URL</label><input id="mProvUrl" value="${esc(p.base_url)}"></div>
+    <div class="field"><label>API Key</label><input id="mProvKey" value="${esc(p.api_key || '')}" placeholder="leave empty to keep current"></div>
+    <div class="field"><label>Priority</label><input id="mProvPriority" type="number" value="${p.priority}"></div>
+    <div class="field"><label>Timeout (ms)</label><input id="mProvTimeout" type="number" value="${p.timeout_ms}"></div>
+    <div class="field"><label>Active</label><select id="mProvActive"><option value="1" ${p.is_active ? 'selected' : ''}>Yes</option><option value="0" ${!p.is_active ? 'selected' : ''}>No</option></select></div>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="updateProvider('${p.id}')">Save</button></div>
+  `);
+}
+
+async function updateProvider(id) {
+  const base_url = document.getElementById('mProvUrl').value;
+  const api_key = document.getElementById('mProvKey').value || null;
+  const priority = parseInt(document.getElementById('mProvPriority').value);
+  const timeout_ms = parseInt(document.getElementById('mProvTimeout').value);
+  const is_active = document.getElementById('mProvActive').value === '1';
+  await api(`/admin/providers/${id}`, { method: 'PUT', body: JSON.stringify({ base_url, api_key, priority, timeout_ms, is_active }) });
+  closeModal(); renderProviders();
+}
+
+async function testProvider(id) {
+  const data = await api(`/admin/providers/${id}/test`, { method: 'POST' });
+  alert(data.message);
+}
+
+async function deleteProvider(id) {
+  if (!confirm('Delete this provider? Models using it will become unavailable.')) return;
+  await api(`/admin/providers/${id}`, { method: 'DELETE' });
+  renderProviders();
+}
+
+// ==================== Models ====================
+async function renderModels() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<h1>Loading...</h1>';
+  const data = await api('/admin/models');
+
+  c.innerHTML = `
+    <div class="header"><h1>Models</h1><button class="btn primary" onclick="showCreateModelModal()">+ Add Model</button></div>
+    <table>
+      <tr><th>Model ID</th><th>Display Name</th><th>Provider</th><th>Provider Model</th><th>Input $/1K</th><th>Output $/1K</th><th>Status</th><th>Actions</th></tr>
+      ${data.models.map(m => `
+        <tr>
+          <td><code>${esc(m.model_id)}</code></td>
+          <td>${esc(m.display_name)}</td>
+          <td>${esc(m.provider_name)}</td>
+          <td style="max-width:150px;overflow:hidden">${esc(m.provider_model_id)}</td>
+          <td>${m.input_price_per_1k}</td>
+          <td>${m.output_price_per_1k}</td>
+          <td>${statusBadge(m.is_active)}</td>
+          <td>
+            <button class="btn sm" onclick="showEditModelModal(${JSON.stringify(m).replace(/"/g, '&quot;')})">Edit</button>
+            <button class="btn sm danger" onclick="deleteModel('${m.id}')">Del</button>
+          </td>
+        </tr>
+      `).join('')}
+    </table>
+  `;
+}
+
+async function showCreateModelModal() {
+  const providers = await api('/admin/providers');
+  openModal(`
+    <h2>Add Model</h2>
+    <div class="field"><label>Model ID (exposed to users)</label><input id="mModelId" placeholder="e.g. gpt-4o"></div>
+    <div class="field"><label>Display Name</label><input id="mModelName"></div>
+    <div class="field"><label>Provider</label><select id="mModelProvider">${providers.providers.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+    <div class="field"><label>Provider Model ID</label><input id="mModelProviderId"></div>
+    <div class="field"><label>Input Price / 1K tokens ($)</label><input id="mModelInputPrice" type="number" step="0.0001" value="0"></div>
+    <div class="field"><label>Output Price / 1K tokens ($)</label><input id="mModelOutputPrice" type="number" step="0.0001" value="0"></div>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="createModel()">Add</button></div>
+  `);
+}
+
+async function createModel() {
+  const body = {
+    model_id: document.getElementById('mModelId').value,
+    display_name: document.getElementById('mModelName').value,
+    provider_id: document.getElementById('mModelProvider').value,
+    provider_model_id: document.getElementById('mModelProviderId').value,
+    input_price_per_1k: parseFloat(document.getElementById('mModelInputPrice').value),
+    output_price_per_1k: parseFloat(document.getElementById('mModelOutputPrice').value),
+  };
+  await api('/admin/models', { method: 'POST', body: JSON.stringify(body) });
+  closeModal(); renderModels();
+}
+
+function showEditModelModal(m) {
+  openModal(`
+    <h2>Edit Model: ${esc(m.model_id)}</h2>
+    <div class="field"><label>Display Name</label><input id="mModelName" value="${esc(m.display_name)}"></div>
+    <div class="field"><label>Input Price / 1K tokens ($)</label><input id="mModelInputPrice" type="number" step="0.0001" value="${m.input_price_per_1k}"></div>
+    <div class="field"><label>Output Price / 1K tokens ($)</label><input id="mModelOutputPrice" type="number" step="0.0001" value="${m.output_price_per_1k}"></div>
+    <div class="field"><label>Active</label><select id="mModelActive"><option value="1" ${m.is_active ? 'selected' : ''}>Yes</option><option value="0" ${!m.is_active ? 'selected' : ''}>No</option></select></div>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="updateModel('${m.id}')">Save</button></div>
+  `);
+}
+
+async function updateModel(id) {
+  const body = {
+    display_name: document.getElementById('mModelName').value,
+    input_price_per_1k: parseFloat(document.getElementById('mModelInputPrice').value),
+    output_price_per_1k: parseFloat(document.getElementById('mModelOutputPrice').value),
+    is_active: document.getElementById('mModelActive').value === '1',
+  };
+  await api(`/admin/models/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+  closeModal(); renderModels();
+}
+
+async function deleteModel(id) {
+  if (!confirm('Delete this model?')) return;
+  await api(`/admin/models/${id}`, { method: 'DELETE' });
+  renderModels();
+}
+
+// ==================== Routes ====================
+async function renderRoutes() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<h1>Loading...</h1>';
+  const data = await api('/admin/routes');
+
+  c.innerHTML = `
+    <div class="header"><h1>Routes</h1><button class="btn primary" onclick="showCreateRouteModal()">+ New Route</button></div>
+    <p style="color:var(--text3);font-size:13px;margin-bottom:16px;">Routes define multi-provider fallback chains for a model.</p>
+    ${data.routes.map(r => `
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <strong><code>${esc(r.model_id)}</code></strong>
+          <div>
+            ${statusBadge(r.is_active)}
+            <button class="btn sm" onclick="deleteRoute('${r.id}')">Delete</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${r.entries.map((e, i) => `
+            <span style="background:var(--bg);padding:4px 10px;border-radius:4px;font-size:12px;">
+              ${i === 0 ? '<span style="color:var(--green)">Primary</span>' : `<span style="color:var(--text3)">Fallback ${i}</span>`}
+              &rarr; ${esc(e.provider_name)} / ${esc(e.provider_model_id)}
+            </span>
+          `).join('')}
+        </div>
+      </div>
+    `).join('')}
+    ${data.routes.length === 0 ? '<div class="empty">No routes configured. Models will use their single provider.</div>' : ''}
+  `;
+}
+
+async function showCreateRouteModal() {
+  const providers = await api('/admin/providers');
+  openModal(`
+    <h2>Create Route</h2>
+    <div class="field"><label>Model ID (virtual model name)</label><input id="mRouteModel" placeholder="e.g. gpt-4o"></div>
+    <p style="color:var(--text3);font-size:12px;margin-bottom:12px;">Add entries in priority order (first = primary):</p>
+    <div id="routeEntries">
+      <div class="field" style="display:flex;gap:8px;align-items:end;">
+        <div style="flex:1"><label>Provider</label><select class="route-provider">${providers.providers.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+        <div style="flex:1"><label>Provider Model ID</label><input class="route-model-id"></div>
+      </div>
+    </div>
+    <button class="btn sm" onclick="addRouteEntry()" style="margin:8px 0">+ Add Entry</button>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="createRoute()">Create</button></div>
+  `);
+}
+
+function addRouteEntry() {
+  const providers = document.querySelectorAll('.route-provider');
+  const options = providers[0]?.innerHTML || '';
+  const div = document.createElement('div');
+  div.className = 'field';
+  div.style.cssText = 'display:flex;gap:8px;align-items:end;';
+  div.innerHTML = `<div style="flex:1"><label>Provider</label><select class="route-provider">${options}</select></div><div style="flex:1"><label>Provider Model ID</label><input class="route-model-id"></div><button class="btn sm danger" onclick="this.parentElement.remove()">-</button>`;
+  document.getElementById('routeEntries').appendChild(div);
+}
+
+async function createRoute() {
+  const model_id = document.getElementById('mRouteModel').value;
+  const providerSelects = document.querySelectorAll('.route-provider');
+  const modelInputs = document.querySelectorAll('.route-model-id');
+  const entries = Array.from(providerSelects).map((sel, i) => ({
+    provider_id: sel.value,
+    provider_model_id: modelInputs[i].value,
+  })).filter(e => e.provider_model_id);
+
+  await api('/admin/routes', { method: 'POST', body: JSON.stringify({ model_id, entries }) });
+  closeModal(); renderRoutes();
+}
+
+async function deleteRoute(id) {
+  if (!confirm('Delete this route?')) return;
+  await api(`/admin/routes/${id}`, { method: 'DELETE' });
+  renderRoutes();
+}
+
+// ==================== Usage Logs ====================
+async function renderUsage() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<h1>Loading...</h1>';
+  const data = await api('/admin/usage');
+
+  c.innerHTML = `
+    <div class="header"><h1>Usage Logs</h1></div>
+    <table>
+      <tr><th>Time</th><th>User</th><th>Model</th><th>Provider</th><th>Tokens</th><th>Cost</th><th>Latency</th><th>Status</th></tr>
+      ${data.logs.map(l => `
+        <tr>
+          <td style="white-space:nowrap">${esc(l.created_at?.slice(0, 19))}</td>
+          <td>${esc(l.user_name)}</td>
+          <td><code>${esc(l.model_id)}</code></td>
+          <td>${esc(l.provider_name)}</td>
+          <td>${fmtNum(l.total_tokens)}</td>
+          <td>${fmt$(l.cost_cents)}</td>
+          <td>${l.latency_ms ? l.latency_ms + 'ms' : '-'}</td>
+          <td><span class="badge ${l.status}">${l.status}</span></td>
+        </tr>
+      `).join('')}
+    </table>
+    ${data.logs.length === 0 ? '<div class="empty">No usage logs yet</div>' : ''}
+  `;
+}
+
+// ==================== Billing ====================
+async function renderBilling() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<h1>Loading...</h1>';
+  const data = await api('/admin/billing/transactions');
+
+  c.innerHTML = `
+    <div class="header"><h1>Billing / Transactions</h1></div>
+    <table>
+      <tr><th>Time</th><th>User</th><th>Type</th><th>Amount</th><th>Balance After</th><th>Description</th></tr>
+      ${data.transactions.map(t => `
+        <tr>
+          <td style="white-space:nowrap">${esc(t.created_at?.slice(0, 19))}</td>
+          <td>${esc(t.user_name)}</td>
+          <td><span class="badge ${t.type === 'topup' ? 'success' : t.type === 'usage' ? '' : ''}">${t.type}</span></td>
+          <td style="color:${t.amount_cents > 0 ? 'var(--green)' : 'var(--red)'}">${t.amount_cents > 0 ? '+' : ''}${fmt$(t.amount_cents)}</td>
+          <td>${fmt$(t.balance_after_cents)}</td>
+          <td>${esc(t.description)}</td>
+        </tr>
+      `).join('')}
+    </table>
+    ${data.transactions.length === 0 ? '<div class="empty">No transactions yet</div>' : ''}
+  `;
+}
+</script>
+</body>
+</html>

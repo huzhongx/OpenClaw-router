@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  openclaw-router:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
