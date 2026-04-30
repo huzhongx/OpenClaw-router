@@ -1,19 +1,20 @@
 # OpenClaw Router
 
-本地部署的 AI 模型路由网关，提供统一的 OpenAI 兼容 API 聚合多个 AI 提供商。
+本地部署的 AI 模型路由网关，提供统一的 OpenAI / Anthropic 兼容 API 聚合多个 AI 提供商。
 
 一个接口访问 GPT、Claude、Gemini、GLM、Mistral、Ollama 等所有模型。
 
 ## 特性
 
-- **OpenAI 100% 兼容** — `/v1/chat/completions`、`/v1/models`，可直接对接 Claude Code、OpenAI SDK 等工具
+- **OpenAI 兼容** — `/v1/chat/completions`、`/v1/models`，可直接对接 Claude Code、OpenAI SDK 等工具
+- **Anthropic Messages 兼容** — `/v1/messages`，完整支持 Claude 原生 API 格式（含 tool use、SSE 流式）
 - **多提供商适配** — OpenAI、Anthropic、Google Gemini、Mistral、OpenAI-Compatible (Ollama/vLLM)
 - **多提供商回退** — 主提供商失败自动切换备用
-- **流式 SSE** — 完整支持 `stream: true`，流结束后异步计费
+- **流式 SSE** — 完整支持 `stream: true`，流结束后异步计费，正确处理客户端断开
 - **API Key 管理** — 按 Key 独立认证和限流
 - **余额与计费** — 按 Token 用量扣费，支持充值和交易记录
-- **用量统计** — 请求级别日志，含 Token、延迟、费用
-- **Web 管理面板** — 暗色主题，含仪表盘、图表、完整 CRUD
+- **用量统计** — 请求级别日志，含 Provider、Token、延迟、费用，支持筛选和分页
+- **Web 管理面板** — 暗色主题，含仪表盘、图表、用户排行、完整 CRUD
 
 ## 快速开始
 
@@ -204,6 +205,41 @@ curl http://localhost:3000/v1/chat/completions \
   }'
 ```
 
+### POST /v1/messages
+
+与 Anthropic Messages API 兼容，支持 tool use 和 SSE 流式。
+
+```bash
+curl http://localhost:3000/v1/messages \
+  -H "x-api-key: ocr-xxx" \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-sonnet-4-20250514",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
+  }'
+```
+
+**流式请求：**
+
+```bash
+curl http://localhost:3000/v1/messages \
+  -H "x-api-key: ocr-xxx" \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-sonnet-4-20250514",
+    "max_tokens": 1024,
+    "stream": true,
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
+  }'
+```
+
 ### GET /v1/models
 
 列出所有可用模型。
@@ -231,14 +267,14 @@ curl http://localhost:3000/v1/models \
 
 | 页面 | 功能 |
 |------|------|
-| Dashboard | 总览统计、每日用量图表 |
+| Dashboard | 总览统计、用量趋势图表、用户排行 |
 | Users | 创建/编辑用户、充值余额 |
 | API Keys | 创建/撤销 Key、限流设置 |
 | Providers | 添加/编辑提供商、连接测试 |
 | Models | 添加/编辑模型、设置定价 |
 | Routes | 配置多提供商回退链 |
-| Usage Logs | 查看所有请求日志（筛选/分页） |
-| Billing | 查看所有交易记录 |
+| Usage Logs | 查看所有请求日志（按用户/状态/日期筛选，分页） |
+| Billing | 查看所有交易记录（按用户/日期筛选，分页） |
 
 ## 路由回退
 
@@ -253,7 +289,7 @@ curl http://localhost:3000/v1/models \
 
 ## 错误格式
 
-所有错误遵循 OpenAI 错误格式：
+### OpenAI 格式
 
 ```json
 {
@@ -266,11 +302,32 @@ curl http://localhost:3000/v1/models \
 }
 ```
 
+### Anthropic 格式
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error",
+    "message": "Model not found: xxx"
+  }
+}
+```
+
 ## 对接 Claude Code
+
+### OpenAI 兼容模式
 
 ```bash
 export OPENAI_API_KEY=ocr-<your-api-key>
-export OPENAI_BASE_URL=http://localhost:3000/v1
+export OPENAI_BASE_URL=https://your-domain.com/v1
+```
+
+### Anthropic 兼容模式
+
+```bash
+export ANTHROPIC_API_KEY=ocr-<your-api-key>
+export ANTHROPIC_BASE_URL=https://your-domain.com
 ```
 
 ## 对接其他 OpenAI SDK
@@ -280,7 +337,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="ocr-xxx",
-    base_url="http://localhost:3000/v1"
+    base_url="https://your-domain.com/v1"
 )
 
 response = client.chat.completions.create(
@@ -308,6 +365,17 @@ docker-compose up -d
 
 ### Nginx 反向代理（HTTPS + 外网访问）
 
+需要在 `/etc/nginx/nginx.conf` 的 `http` 块中添加 WebSocket upgrade 映射：
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+```
+
+站点配置参考 `nginx.conf.example`：
+
 ```nginx
 server {
     listen 443 ssl;
@@ -318,12 +386,20 @@ server {
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_buffering off;           # SSE 必须关闭
-        proxy_read_timeout 300s;      # 长连接超时
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket (only when client requests upgrade)
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        # SSE streaming
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
     }
 }
 ```
@@ -334,7 +410,7 @@ server {
 openclaw-router/
 ├── src/
 │   ├── index.ts              # 入口
-│   ├── app.ts                # Express 应用配置
+│   ├── app.ts                # Express 应用配置（gzip、CORS）
 │   ├── config.ts             # 环境变量
 │   ├── types.ts              # 类型定义
 │   ├── db/
@@ -355,14 +431,14 @@ openclaw-router/
 │   │   ├── registry.ts       # 提供商注册表
 │   │   └── router.ts         # 路由解析与回退
 │   ├── routes/
-│   │   ├── v1/               # OpenAI 兼容 API
+│   │   ├── v1/               # OpenAI + Anthropic 兼容 API
 │   │   ├── admin/            # 管理接口
 │   │   └── user/             # 用户接口
 │   ├── services/
 │   │   ├── billing.ts        # 余额与计费
 │   │   ├── key-manager.ts    # API Key 生成/验证
 │   │   ├── token-counter.ts  # Token 估算
-│   │   └── usage-logger.ts   # 异步用量日志
+│   │   └── usage-logger.ts   # 异步批量用量日志
 │   └── dashboard/
 │       ├── index.html        # 管理面板 SPA
 │       └── dashboard.ts      # 静态文件路由
