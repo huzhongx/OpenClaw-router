@@ -42,7 +42,7 @@ export class GeminiProvider extends BaseProvider {
     return this.transformResponse(data, request.model);
   }
 
-  async *chatStream(request: ProviderRequest): AsyncIterable<StreamChunk> {
+  async *chatStream(request: ProviderRequest, signal?: AbortSignal): AsyncIterable<StreamChunk> {
     const { systemInstruction, contents } = this.convertRequest(request);
     const body: any = { contents };
     if (systemInstruction) body.systemInstruction = systemInstruction;
@@ -55,7 +55,7 @@ export class GeminiProvider extends BaseProvider {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.timeout),
+      signal: this.mergeSignal(signal),
     });
 
     if (!res.ok) {

@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import { config } from './config';
 import { errorHandler } from './middleware/error-handler';
@@ -7,6 +8,7 @@ import { errorHandler } from './middleware/error-handler';
 // Routes
 import v1ChatRouter from './routes/v1/chat';
 import v1ModelsRouter from './routes/v1/models';
+import v1MessagesRouter from './routes/v1/messages';
 import adminAuthRouter from './routes/admin/auth';
 import adminUsersRouter from './routes/admin/users';
 import adminApiKeysRouter from './routes/admin/api-keys';
@@ -29,6 +31,16 @@ export function createApp(): express.Application {
   app.use(cors({
     origin: corsOrigins[0] === '*' ? true : corsOrigins,
     credentials: true,
+  }));
+
+  // Compression (gzip) — skip for SSE streams to avoid buffering
+  app.use(compression({
+    filter: (req, res) => {
+      if (res.getHeader('Content-Type') === 'text/event-stream') {
+        return false;
+      }
+      return compression.filter(req, res);
+    },
   }));
 
   // Body parsing
@@ -70,7 +82,7 @@ export function createApp(): express.Application {
   app.use('/user', userBalanceRouter, userUsageRouter, userKeysRouter);
 
   // OpenAI-compatible API routes (require API key)
-  app.use('/v1', v1ChatRouter, v1ModelsRouter);
+  app.use('/v1', v1ChatRouter, v1ModelsRouter, v1MessagesRouter);
 
   // Global error handler
   app.use(errorHandler);

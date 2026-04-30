@@ -1,7 +1,17 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+const envResult = dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+// Track which env vars came from .env so we can detect stale overrides
+if (envResult.parsed) {
+  for (const key of Object.keys(envResult.parsed)) {
+    // dotenv won't override existing env vars, so if .env value is empty
+    // but process.env has a stale value, clear it
+    if (!envResult.parsed[key] && process.env[key]) {
+      delete process.env[key];
+    }
+  }
+}
 
 function required(key: string): string {
   const val = process.env[key];

@@ -213,126 +213,176 @@ async function handleStreaming(
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  // Keepalive ping — prevents intermediaries (nginx, LB) from closing idle connection
+  const pingInterval = setInterval(() => {
+    if (!res.writableEnded) {
+      res.write(': ping\n\n');
+    }
+  }, 15_000);
+
+  // AbortController for client disconnect (ESC / connection close)
+  const clientAbort = new AbortController();
+  let clientDisconnected = false;
+
+  const onClientClose = () => {
+    clientDisconnected = true;
+    clientAbort.abort();
+  };
+  req.on('close', onClientClose);
+
+  // Cleanup helper
+  const cleanup = () => {
+    req.off('close', onClientClose);
+    clearInterval(pingInterval);
+  };
 
   const errors: ProviderError[] = [];
-  let currentEntryIndex = 0;
 
-  for (let i = currentEntryIndex; i < entries.length; i++) {
-    const entry = entries[i];
-    const provider = createProvider(entry.providerConfig);
-    const providerRequest: ProviderRequest = {
-      model: entry.providerModelId,
-      messages: body.messages as any,
-      temperature: body.temperature,
-      top_p: body.top_p,
-      max_tokens: body.max_tokens,
-      stop: Array.isArray(body.stop) ? body.stop : body.stop ? [body.stop] : undefined,
-      stream: true,
-      tools: body.tools,
-      response_format: body.response_format,
-      user: body.user,
-    };
-
-    try {
-      const stream = provider.chatStream(providerRequest);
-      let totalUsage = emptyUsage();
-      let responseId = requestId;
-
-      for await (const chunk of stream) {
-        responseId = chunk.id || responseId;
-        const sseData = `data: ${JSON.stringify({
-          id: chunk.id || responseId,
-          object: 'chat.completion.chunk',
-          created: Math.floor(Date.now() / 1000),
-          model: body.model,
-          choices: chunk.choices,
-          ...(chunk.usage ? { usage: chunk.usage } : {}),
-        })}\n\n`;
-        res.write(sseData);
-
-        if (chunk.usage && isUsageValid(chunk.usage)) {
-          totalUsage = chunk.usage;
-        }
-      }
-
-      res.write('data: [DONE]\n\n');
-      res.end();
-
-      // Post-stream billing
-      const latencyMs = Date.now() - startTime;
-      const model = resolveModel(body.model);
-      const costCents = model ? toCents(calculateCost(totalUsage, model)) : 0;
-
-      if (model && req.userId) {
-        deductUsage(req.userId!, totalUsage, model);
-      }
-
-      logUsage({
-        userId: req.userId!,
-        apiKeyId: req.apiKeyId || null,
-        modelId: body.model,
-        providerId: entry.providerConfig.id,
-        providerModelId: entry.providerModelId,
-        requestId,
-        inputTokens: totalUsage.prompt_tokens,
-        outputTokens: totalUsage.completion_tokens,
-        totalTokens: totalUsage.total_tokens,
-        costCents,
-        latencyMs,
-        status: 'success',
-        errorMessage: null,
-        ipAddress: req.ip || null,
-        userAgent: req.headers['user-agent'] || null,
-      });
-      return;
-    } catch (err: any) {
-      const message = typeof err?.message === 'string' ? err.message : String(err);
-      const pe: ProviderError = err?.retryable !== undefined ? err : {
-        status: typeof err?.status === 'number' ? err.status : 500,
-        message,
-        retryable: false,
+  try {
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const provider = createProvider(entry.providerConfig);
+      const providerRequest: ProviderRequest = {
+        model: entry.providerModelId,
+        messages: body.messages as any,
+        temperature: body.temperature,
+        top_p: body.top_p,
+        max_tokens: body.max_tokens,
+        stop: Array.isArray(body.stop) ? body.stop : body.stop ? [body.stop] : undefined,
+        stream: true,
+        tools: body.tools,
+        response_format: body.response_format,
+        user: body.user,
       };
-      errors.push(pe);
 
-      if (pe.retryable && i < entries.length - 1) {
-        // Send comment and try next provider
-        res.write(`: Retrying with next provider...\n\n`);
-        continue;
+      try {
+        const providerStream = provider.chatStream(providerRequest, clientAbort.signal);
+        let totalUsage = emptyUsage();
+
+        // Use Transform stream to convert provider chunks to SSE format
+        const { Readable, Transform } = await import('stream');
+        const sseTransform = new Transform({
+          objectMode: true,
+          transform(chunk: any, _encoding, callback) {
+            if (chunk.usage && isUsageValid(chunk.usage)) totalUsage = chunk.usage;
+            const sseData = `data: ${JSON.stringify({
+              id: chunk.id || requestId,
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model: body.model,
+              choices: chunk.choices,
+              ...(chunk.usage ? { usage: chunk.usage } : {}),
+            })}\n\n`;
+            callback(null, sseData);
+          },
+          flush(callback) {
+            callback(null, 'data: [DONE]\n\n');
+          },
+        });
+
+        const readable = Readable.from(providerStream, { objectMode: true });
+        readable.pipe(sseTransform).pipe(res, { end: false });
+
+        await new Promise<void>((resolve, reject) => {
+          sseTransform.on('error', reject);
+          sseTransform.on('end', resolve);
+        });
+        res.end();
+
+        if (clientDisconnected) {
+          // Client aborted — bill for tokens consumed so far
+          const latencyMs = Date.now() - startTime;
+          const model = resolveModel(body.model);
+          const costCents = model ? toCents(calculateCost(totalUsage, model)) : 0;
+          if (model && req.userId && totalUsage.total_tokens > 0) {
+            deductUsage(req.userId!, totalUsage, model);
+          }
+          logUsage({
+            userId: req.userId!, apiKeyId: req.apiKeyId || null,
+            modelId: body.model, providerId: entry.providerConfig.id,
+            providerModelId: entry.providerModelId, requestId,
+            inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
+            totalTokens: totalUsage.total_tokens, costCents, latencyMs,
+            status: 'cancelled', errorMessage: 'Client disconnected',
+            ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
+          });
+          cleanup();
+          return;
+        }
+
+        // Post-stream billing
+        const latencyMs = Date.now() - startTime;
+        const model = resolveModel(body.model);
+        const costCents = model ? toCents(calculateCost(totalUsage, model)) : 0;
+        if (model && req.userId) {
+          deductUsage(req.userId!, totalUsage, model);
+        }
+        logUsage({
+          userId: req.userId!, apiKeyId: req.apiKeyId || null,
+          modelId: body.model, providerId: entry.providerConfig.id,
+          providerModelId: entry.providerModelId, requestId,
+          inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
+          totalTokens: totalUsage.total_tokens, costCents, latencyMs,
+          status: 'success', errorMessage: null,
+          ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
+        });
+        cleanup();
+        return;
+      } catch (err: any) {
+        // If client disconnected, stop retrying
+        if (clientDisconnected) break;
+
+        const message = typeof err?.message === 'string' ? err.message : String(err);
+        const pe: ProviderError = err?.retryable !== undefined ? err : {
+          status: typeof err?.status === 'number' ? err.status : 500,
+          message,
+          retryable: false,
+        };
+        errors.push(pe);
+
+        if (pe.retryable && i < entries.length - 1) {
+          res.write(`: Retrying with next provider...\n\n`);
+          continue;
+        }
+        break;
       }
-      break;
     }
+
+    // All providers failed
+    const errorData = {
+      error: {
+        message: `All providers failed: ${errors.map(e => String(e.message || e)).join('; ')}`,
+        type: 'upstream_error',
+        code: 'all_providers_failed',
+      },
+    };
+    res.write(`data: ${JSON.stringify(errorData)}\n\n`);
+    res.write('data: [DONE]\n\n');
+    res.end();
+
+    const latencyMs = Date.now() - startTime;
+    logUsage({
+      userId: req.userId!,
+      apiKeyId: req.apiKeyId || null,
+      modelId: body.model,
+      providerId: entries[0]?.providerConfig?.id || '',
+      providerModelId: entries[0]?.providerModelId || body.model,
+      requestId,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      costCents: 0,
+      latencyMs,
+      status: 'error',
+      errorMessage: errors.map(e => e.message).join('; '),
+      ipAddress: req.ip || null,
+      userAgent: req.headers['user-agent'] || null,
+    });
+  } finally {
+    cleanup();
   }
-
-  // All providers failed
-  const errorData = {
-    error: {
-      message: `All providers failed: ${errors.map(e => String(e.message || e)).join('; ')}`,
-      type: 'upstream_error',
-      code: 'all_providers_failed',
-    },
-  };
-  res.write(`data: ${JSON.stringify(errorData)}\n\n`);
-  res.write('data: [DONE]\n\n');
-  res.end();
-
-  const latencyMs = Date.now() - startTime;
-  logUsage({
-    userId: req.userId!,
-    apiKeyId: req.apiKeyId || null,
-    modelId: body.model,
-    providerId: entries[0]?.providerConfig?.id || '',
-    providerModelId: entries[0]?.providerModelId || body.model,
-    requestId,
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
-    costCents: 0,
-    latencyMs,
-    status: 'error',
-    errorMessage: errors.map(e => e.message).join('; '),
-    ipAddress: req.ip || null,
-    userAgent: req.headers['user-agent'] || null,
-  });
 }
 
 export default router;

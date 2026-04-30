@@ -44,13 +44,13 @@ export class OpenAIProvider extends BaseProvider {
     return this.transformResponse(data);
   }
 
-  async *chatStream(request: ProviderRequest): AsyncIterable<StreamChunk> {
+  async *chatStream(request: ProviderRequest, signal?: AbortSignal): AsyncIterable<StreamChunk> {
     const body = this.buildBody({ ...request, stream: true });
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.timeout),
+      signal: this.mergeSignal(signal),
     });
 
     if (!res.ok) {

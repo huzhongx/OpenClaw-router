@@ -66,7 +66,7 @@ export class AnthropicProvider extends BaseProvider {
     return this.transformResponse(data);
   }
 
-  async *chatStream(request: ProviderRequest): AsyncIterable<StreamChunk> {
+  async *chatStream(request: ProviderRequest, signal?: AbortSignal): AsyncIterable<StreamChunk> {
     const { system, messages } = this.convertMessages(request.messages);
     const body: any = {
       model: request.model,
@@ -80,13 +80,16 @@ export class AnthropicProvider extends BaseProvider {
     if (request.stop) body.stop_sequences = request.stop;
     if (request.tools?.length) body.tools = this.convertTools(request.tools);
 
+    // Use a much longer timeout for streaming (5 minutes) — the total
+    // response can take minutes for thinking models.  The signal from the
+    // caller (client disconnect) is still respected via mergeSignal.
+    const streamTimeout = Math.max(this.timeout * 10, 300_000);
     const res = await fetch(`${this.baseUrl}/messages`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.timeout),
+      signal: signal ? this.mergeSignal(signal) : AbortSignal.timeout(streamTimeout),
     });
-
     if (!res.ok) {
       throw await this.handleError(res);
     }
@@ -183,6 +186,8 @@ export class AnthropicProvider extends BaseProvider {
                 total_tokens: event.message.usage.input_tokens || 0,
               } : undefined,
             };
+          } else if (eventType === 'message_stop') {
+            return;
           }
         } catch {
           // Skip malformed chunks
@@ -256,7 +261,7 @@ export class AnthropicProvider extends BaseProvider {
 
       if (typeof msg.content === 'string') {
         anthropicMsg.content = [{ type: 'text', text: msg.content }];
-      } else {
+      } else if (Array.isArray(msg.content)) {
         const parts = msg.content as ContentPart[];
         for (const part of parts) {
           if (part.type === 'text') {

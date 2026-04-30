@@ -35,8 +35,8 @@ router.post('/login', (req: Request, res: Response) => {
   const token = generateAdminToken(admin.id, admin.username);
   res.cookie('admin_session', token, {
     httpOnly: true,
-    sameSite: 'strict',
-    path: '/admin',
+    sameSite: 'lax',
+    path: '/',
     maxAge: 24 * 60 * 60 * 1000, // 24h
   });
 
@@ -55,7 +55,7 @@ router.get('/me', adminAuth, (_req: Request, res: Response) => {
 
 // GET /admin/logout
 router.get('/logout', (_req: Request, res: Response) => {
-  res.clearCookie('admin_session', { path: '/admin' });
+  res.clearCookie('admin_session', { path: '/' });
   res.json({ success: true });
 });
 
