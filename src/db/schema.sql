@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS usage_logs (
   api_key_id          TEXT REFERENCES api_keys(id),
   model_id            TEXT NOT NULL,
   provider_id         TEXT NOT NULL,
+  provider_name       TEXT NOT NULL DEFAULT '',
   provider_model_id   TEXT NOT NULL,
   request_id          TEXT,
   input_tokens        INTEGER NOT NULL DEFAULT 0,

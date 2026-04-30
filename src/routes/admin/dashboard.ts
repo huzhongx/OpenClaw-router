@@ -80,4 +80,35 @@ router.get('/hourly-usage', (_req: any, res: Response) => {
   res.json({ hours: rows });
 });
 
+// GET /admin/dashboard/user-stats?range=today|7d|30d
+router.get('/user-stats', (_req: any, res: Response) => {
+  const db = getDb();
+  const range = _req.query.range as string || 'today';
+
+  let whereClause: string;
+  if (range === '7d') {
+    whereClause = "ul.created_at >= datetime('now', '-7 days')";
+  } else if (range === '30d') {
+    whereClause = "ul.created_at >= datetime('now', '-30 days')";
+  } else {
+    whereClause = "date(ul.created_at) = date('now')";
+  }
+
+  const rows = db.prepare(`
+    SELECT ul.user_id, u.name as user_name, u.email, u.balance_cents, u.is_active,
+      COUNT(*) as requests,
+      COALESCE(SUM(ul.total_tokens), 0) as tokens,
+      COALESCE(SUM(ul.cost_cents), 0) as cost_cents,
+      SUM(CASE WHEN ul.status = 'error' THEN 1 ELSE 0 END) as errors,
+      MAX(ul.created_at) as last_active
+    FROM usage_logs ul
+    JOIN users u ON ul.user_id = u.id
+    WHERE ${whereClause}
+    GROUP BY ul.user_id
+    ORDER BY requests DESC
+  `).all() as any[];
+
+  res.json({ users: rows });
+});
+
 export default router;

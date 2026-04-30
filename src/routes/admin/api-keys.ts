@@ -13,13 +13,14 @@ router.get('/', (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
   const offset = (page - 1) * limit;
   const userId = req.query.user_id as string;
+  const search = req.query.search as string;
 
   let where = '';
   const params: any[] = [];
-  if (userId) {
-    where = 'WHERE ak.user_id = ?';
-    params.push(userId);
-  }
+  const conditions: string[] = [];
+  if (userId) { conditions.push('ak.user_id = ?'); params.push(userId); }
+  if (search) { conditions.push('ak.name LIKE ?'); params.push(`%${search}%`); }
+  if (conditions.length > 0) where = `WHERE ${conditions.join(' AND ')}`;
 
   const total = db.prepare(`SELECT COUNT(*) as count FROM api_keys ak ${where}`).get(...params) as any;
   const keys = db.prepare(

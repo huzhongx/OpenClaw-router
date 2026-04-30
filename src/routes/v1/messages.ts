@@ -97,6 +97,7 @@ router.post('/messages', apiKeyAuth, rateLimit, async (req: Request, res: Respon
       apiKeyId: req.apiKeyId || null,
       modelId: body.model,
       providerId: '',
+      providerName: '',
       providerModelId: body.model,
       requestId,
       inputTokens: 0,
@@ -331,6 +332,7 @@ async function handleNonStreaming(
         apiKeyId: req.apiKeyId || null,
         modelId: body.model,
         providerId: entry.providerConfig.id,
+        providerName: entry.providerConfig.name,
         providerModelId: entry.providerModelId,
         requestId,
         inputTokens: usage.prompt_tokens,
@@ -442,6 +444,7 @@ async function handleStreaming(
         let totalUsage = emptyUsage();
         let currentBlockIndex = -1;
         let currentBlockType: string | null = null;
+        let streamFinished = false;
 
         // Use a simple Transform that wraps the conversion logic
         const { Transform, Readable } = await import('stream');
@@ -470,14 +473,18 @@ async function handleStreaming(
             } else if (choice.delta?.tool_calls?.length) {
               for (const tc of choice.delta.tool_calls) {
                 if (tc.id && tc.id !== '') {
+                  // Close previous block if any
+                  if (currentBlockType !== null) {
+                    output += `event: content_block_stop\ndata: {"type":"content_block_stop","index":${currentBlockIndex}}\n\n`;
+                  }
                   currentBlockIndex++;
                   currentBlockType = 'tool_use';
-                  output += `event: content_block_stop\ndata: {"type":"content_block_stop","index":${currentBlockIndex}}\n\n`;
                   output += `event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: currentBlockIndex, content_block: { type: 'tool_use', id: tc.id, name: tc.function?.name || '', input: {} } })}\n\n`;
                 }
                 if (tc.function?.arguments) output += `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: currentBlockIndex, delta: { type: 'input_json_delta', partial_json: tc.function.arguments } })}\n\n`;
               }
             } else if (choice.finish_reason) {
+              streamFinished = true;
               const stopMap: Record<string, string> = { 'stop': 'end_turn', 'length': 'max_tokens', 'tool_calls': 'tool_use', 'content_filter': 'end_turn' };
               if (currentBlockType !== null) output += `event: content_block_stop\ndata: {"type":"content_block_stop","index":${currentBlockIndex}}\n\n`;
               output += `event: message_delta\ndata: ${JSON.stringify({ type: 'message_delta', delta: { stop_reason: stopMap[choice.finish_reason] || 'end_turn' }, usage: { output_tokens: totalUsage.completion_tokens || 0 } })}\n\n`;
@@ -489,6 +496,13 @@ async function handleStreaming(
         });
 
         const readable = Readable.from(stream, { objectMode: true });
+        readable.on('error', (err) => {
+          // Prevent unhandledRejection from provider stream errors
+          if (!res.writableEnded) {
+            res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'api_error', message: String(err.message || err) } })}\n\n`);
+            res.end();
+          }
+        });
         readable.pipe(sseTransform).pipe(res, { end: false });
 
         await new Promise<void>((resolve, reject) => {
@@ -496,16 +510,29 @@ async function handleStreaming(
           sseTransform.on('end', resolve);
         });
 
-        if (clientDisconnected) {
-          const latencyMs = Date.now() - startTime;
-          const model = resolveModel(body.model);
-          const costCents = model ? toCents(calculateCost(totalUsage, model)) : 0;
+        // Snapshot disconnect state immediately after stream ends,
+        // BEFORE res.end() triggers req 'close' event
+        const wasCancelled = clientDisconnected;
+        // If the stream completed normally (got finish_reason), treat as success
+        // even if client disconnected after receiving all data
+        const status = (!wasCancelled || streamFinished) ? 'success' : 'cancelled';
+
+        const latencyMs = Date.now() - startTime;
+        const model = resolveModel(body.model);
+        const costCents = model ? toCents(calculateCost(totalUsage, model)) : 0;
+
+        if (!wasCancelled) {
+          res.end();
+        }
+
+        if (status === 'cancelled') {
           if (model && req.userId && totalUsage.total_tokens > 0) {
             deductUsage(req.userId!, totalUsage, model);
           }
           logUsage({
             userId: req.userId!, apiKeyId: req.apiKeyId || null,
             modelId: body.model, providerId: entry.providerConfig.id,
+            providerName: entry.providerConfig.name,
             providerModelId: entry.providerModelId, requestId,
             inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
             totalTokens: totalUsage.total_tokens, costCents, latencyMs,
@@ -516,18 +543,14 @@ async function handleStreaming(
           return;
         }
 
-        res.end();
-
         // Post-stream billing
-        const latencyMs = Date.now() - startTime;
-        const model = resolveModel(body.model);
-        const costCents = model ? toCents(calculateCost(totalUsage, model)) : 0;
         if (model && req.userId) {
           deductUsage(req.userId!, totalUsage, model);
         }
         logUsage({
           userId: req.userId!, apiKeyId: req.apiKeyId || null,
           modelId: body.model, providerId: entry.providerConfig.id,
+          providerName: entry.providerConfig.name,
           providerModelId: entry.providerModelId, requestId,
           inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
           totalTokens: totalUsage.total_tokens, costCents, latencyMs,
@@ -572,6 +595,7 @@ async function handleStreaming(
       apiKeyId: req.apiKeyId || null,
       modelId: body.model,
       providerId: entries[0]?.providerConfig?.id || '',
+      providerName: entries[0]?.providerConfig?.name || '',
       providerModelId: entries[0]?.providerModelId || body.model,
       requestId,
       inputTokens: 0,

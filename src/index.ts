@@ -6,6 +6,7 @@ import pino from 'pino';
 const logger = pino({ level: config.logLevel });
 
 // Prevent crashes from unhandled promise rejections
+// Without this, Node.js v22+ will terminate the process on unhandled rejection
 process.on('unhandledRejection', (reason) => {
   logger.error({ err: reason }, 'Unhandled promise rejection');
 });

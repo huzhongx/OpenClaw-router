@@ -31,10 +31,9 @@ router.get('/', (req: Request, res: Response) => {
   const total = db.prepare(`SELECT COUNT(*) as count FROM usage_logs ul ${where}`).get(...params) as any;
 
   const logs = db.prepare(`
-    SELECT ul.*, u.name as user_name, p.name as provider_name
+    SELECT ul.*, u.name as user_name
     FROM usage_logs ul
     LEFT JOIN users u ON ul.user_id = u.id
-    LEFT JOIN providers p ON ul.provider_id = p.id
     ${where}
     ORDER BY ul.created_at DESC LIMIT ? OFFSET ?
   `).all(...params, limit, offset) as any[];

@@ -9,6 +9,23 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&family=Outfit:wght@300;500;700&display=swap" rel="stylesheet">
   <script defer src="https://unpkg.com/lucide@latest"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/en.js"></script>
+  <style>
+    .flatpickr-calendar { background: rgba(18,18,42,0.95) !important; border: 1px solid var(--glass-border) !important; box-shadow: 0 12px 40px rgba(0,0,0,0.5) !important; border-radius: var(--radius-sm) !important; }
+    [data-theme="light"] .flatpickr-calendar { background: rgba(255,255,255,0.95) !important; box-shadow: 0 12px 40px rgba(0,0,0,0.12) !important; }
+    .flatpickr-months, .flatpickr-current-month .flatpickr-monthDropdown-months, .flatpickr-current-month input.cur-year { color: var(--text-primary) !important; background: transparent !important; }
+    .flatpickr-monthDropdown-months option, .flatpickr-monthDropdown-months optgroup { background: var(--bg-secondary) !important; color: var(--text-primary) !important; }
+    .flatpickr-weekday { color: var(--text-muted) !important; }
+    .flatpickr-day { color: var(--text-secondary) !important; border-radius: 6px !important; }
+    .flatpickr-day:hover { background: rgba(255,255,255,0.08) !important; color: var(--text-primary) !important; }
+    .flatpickr-day.selected { background: var(--accent-blue) !important; color: #000 !important; border-color: var(--accent-blue) !important; }
+    .flatpickr-day.today { border-color: var(--accent-purple) !important; }
+    .flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay { color: var(--text-muted) !important; opacity: 0.4; }
+    .spanContainer.flatpickr { position: relative; display: inline-block; }
+    .spanContainer.flatpickr input { cursor: pointer; }
+  </style>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -33,6 +50,21 @@
       --radius: 16px;
       --radius-sm: 10px;
     }
+    [data-theme="light"] {
+      --bg-primary: #f0f2f5;
+      --bg-secondary: #e4e7ec;
+      --glass-bg: rgba(255, 255, 255, 0.7);
+      --glass-bg-hover: rgba(255, 255, 255, 0.85);
+      --glass-bg-strong: rgba(255, 255, 255, 0.6);
+      --glass-border: rgba(0, 0, 0, 0.08);
+      --glass-border-hover: rgba(0, 0, 0, 0.15);
+      --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+      --glass-shadow-hover: 0 12px 40px rgba(0, 0, 0, 0.12);
+      --text-primary: #1a1a2e;
+      --text-secondary: #4a4a6a;
+      --text-muted: #8888a8;
+      --blur: 20px;
+    }
     body {
       font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
       background: var(--bg-primary);
@@ -49,10 +81,14 @@
       background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 40%, #0a1a2e 70%, #0a0a1a 100%);
       z-index: -2;
     }
+    [data-theme="light"] .bg-gradient {
+      background: linear-gradient(135deg, #e8ecf1 0%, #e0e4f0 40%, #e4e8f0 70%, #eaecf0 100%);
+    }
     .bg-orb {
       position: fixed; border-radius: 50%; filter: blur(80px); opacity: 0.35; z-index: -1;
       pointer-events: none; will-change: transform;
     }
+    [data-theme="light"] .bg-orb { opacity: 0.15; }
     .bg-orb-1 {
       width: 500px; height: 500px; top: -10%; left: -5%;
       background: radial-gradient(circle, var(--accent-purple), transparent 70%);
@@ -111,6 +147,7 @@
       border-right: 1px solid var(--glass-border);
       display: flex; flex-direction: column;
     }
+    [data-theme="light"] .sidebar { background: rgba(255, 255, 255, 0.6); }
     .sidebar .logo {
       padding: 0 24px 24px; margin-bottom: 8px;
       border-bottom: 1px solid var(--glass-border);
@@ -137,11 +174,13 @@
       color: var(--text-primary);
       background: rgba(255,255,255,0.04);
     }
+    [data-theme="light"] .sidebar a:hover { background: rgba(0,0,0,0.04); }
     .sidebar a.active {
       color: var(--accent-blue);
       background: rgba(0, 212, 255, 0.08);
       box-shadow: inset 3px 0 0 var(--accent-blue);
     }
+    [data-theme="light"] .sidebar a.active { background: rgba(0, 150, 220, 0.08); }
     .sidebar a.active i { color: var(--accent-blue); }
     .sidebar a i { width: 18px; height: 18px; opacity: 0.7; transition: opacity 0.2s; }
     .sidebar a:hover i { opacity: 1; }
@@ -199,6 +238,10 @@
     .card .value.yellow { background: linear-gradient(135deg, var(--accent-yellow), #ffaa00); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
     .card .value.blue { background: linear-gradient(135deg, var(--accent-blue), #0088cc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
     .card .value.purple { background: linear-gradient(135deg, var(--accent-purple), #8833cc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    [data-theme="light"] .card .value.green { color: #00aa66; -webkit-text-fill-color: #00aa66; background: none; }
+    [data-theme="light"] .card .value.yellow { color: #cc8800; -webkit-text-fill-color: #cc8800; background: none; }
+    [data-theme="light"] .card .value.blue { color: #0066aa; -webkit-text-fill-color: #0066aa; background: none; }
+    [data-theme="light"] .card .value.purple { color: #6622aa; -webkit-text-fill-color: #6622aa; background: none; }
 
     /* ==================== Table ==================== */
     .table-wrap {
@@ -218,12 +261,14 @@
       color: var(--text-secondary);
     }
     tr:hover td { background: rgba(255,255,255,0.02); }
+    [data-theme="light"] tr:hover td { background: rgba(0,0,0,0.03); }
     code {
       font-family: 'SF Mono', 'Fira Code', monospace;
       background: rgba(255,255,255,0.06);
       padding: 2px 8px; border-radius: 6px; font-size: 12px;
       color: var(--accent-blue);
     }
+    [data-theme="light"] code { background: rgba(0,0,0,0.06); }
 
     /* ==================== Buttons ==================== */
     .btn {
@@ -280,6 +325,7 @@
       box-shadow: 0 24px 64px rgba(0,0,0,0.5);
       animation: modalIn 0.3s ease;
     }
+    [data-theme="light"] .modal { background: rgba(255,255,255,0.9); box-shadow: 0 24px 64px rgba(0,0,0,0.12); }
     @keyframes modalIn {
       from { opacity: 0; transform: scale(0.95) translateY(10px); }
       to { opacity: 1; transform: scale(1) translateY(0); }
@@ -304,6 +350,9 @@
       color: var(--text-primary); font-size: 14px;
       font-family: 'DM Sans', sans-serif;
       transition: all 0.2s ease;
+    }
+    [data-theme="light"] .modal input, [data-theme="light"] .modal select, [data-theme="light"] .modal textarea {
+      background: rgba(0,0,0,0.03);
     }
     .modal input:focus, .modal select:focus, .modal textarea:focus {
       outline: none;
@@ -359,6 +408,23 @@
       width: 8px; height: 8px; border-radius: 50%;
     }
     .chart-card canvas { width: 100% !important; height: 200px !important; }
+    .charts-row {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 28px;
+    }
+    @media (max-width: 900px) { .charts-row { grid-template-columns: 1fr; } }
+    .rank-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; border-radius: 50%; font-size: 12px; font-weight: 700;
+    }
+    .rank-1 { background: linear-gradient(135deg, #ffd700, #ffaa00); color: #1a1a00; }
+    .rank-2 { background: linear-gradient(135deg, #c0c0c0, #a0a0a0); color: #1a1a1a; }
+    .rank-3 { background: linear-gradient(135deg, #cd7f32, #a0612b); color: #1a1000; }
+    .section-title {
+      font-family: 'Outfit', sans-serif; font-size: 16px; font-weight: 600;
+      color: var(--text-primary); margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-title i { color: var(--accent-blue); }
 
     /* ==================== Pagination ==================== */
     .pagination {
@@ -392,6 +458,7 @@
       box-shadow: 0 24px 64px rgba(0,0,0,0.4);
       animation: modalIn 0.5s ease;
     }
+    [data-theme="light"] .login-box { background: rgba(255,255,255,0.8); box-shadow: 0 24px 64px rgba(0,0,0,0.1); }
     .login-box h1 {
       text-align: center; margin-bottom: 8px; font-size: 28px; font-weight: 700;
       background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
@@ -417,6 +484,7 @@
       font-family: 'DM Sans', sans-serif;
       transition: all 0.2s ease;
     }
+    [data-theme="light"] .login-box input { background: rgba(0,0,0,0.03); }
     .login-box input:focus {
       outline: none;
       border-color: var(--accent-blue);
@@ -438,6 +506,8 @@
       font-family: 'DM Sans', sans-serif;
       transition: all 0.2s;
     }
+    [data-theme="light"] .toolbar input, [data-theme="light"] .toolbar select { background: rgba(255,255,255,0.8); }
+    .toolbar input[type="date" lang="en"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
     .toolbar input:focus, .toolbar select:focus {
       outline: none; border-color: var(--accent-blue);
       box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
@@ -455,6 +525,7 @@
       font-size: 12px; color: var(--text-secondary);
       border: 1px solid rgba(255,255,255,0.04);
     }
+    [data-theme="light"] .route-entry { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.06); }
     .route-entry .tag {
       font-weight: 600; font-size: 10px; text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -477,6 +548,8 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+    [data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); }
+    [data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
 
     /* ==================== Responsive ==================== */
     @media (max-width: 768px) {
@@ -576,6 +649,20 @@ async function cachedApi(url, ttlMs = 30000) {
   return data;
 }
 
+// ==================== Theme ====================
+function getTheme() { return localStorage.getItem('theme') || 'dark'; }
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const icon = document.getElementById('themeIcon');
+  if (icon) { icon.setAttribute('data-lucide', theme === 'dark' ? 'sun' : 'moon'); if (typeof lucide !== 'undefined') lucide.createIcons(); }
+}
+function toggleTheme() {
+  const next = getTheme() === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('theme', next);
+  applyTheme(next);
+}
+applyTheme(getTheme());
+
 // ==================== Auth ====================
 async function doLogin() {
   const username = document.getElementById('loginUsername').value;
@@ -602,6 +689,19 @@ function showLogin() {
 function showApp() {
   document.getElementById('loginPage').classList.add('hidden');
   document.getElementById('appPage').classList.remove('hidden');
+  // Inject theme toggle button if not exists
+  if (!document.getElementById('themeToggle')) {
+    const btn = document.createElement('a');
+    btn.id = 'themeToggle';
+    btn.href = '#';
+    btn.title = 'Toggle theme';
+    btn.onclick = (e) => { e.preventDefault(); toggleTheme(); };
+    btn.style.cssText = 'position:fixed;top:20px;right:20px;z-index:50;padding:10px;border-radius:10px;border:1px solid var(--glass-border);background:var(--glass-bg);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;transition:all 0.2s;cursor:pointer;';
+    btn.innerHTML = '<i id="themeIcon" data-lucide="sun" style="width:18px;height:18px;opacity:0.7"></i>';
+    btn.onmouseenter = () => { btn.style.background = 'var(--glass-bg-hover)'; btn.style.borderColor = 'var(--glass-border-hover)'; };
+    btn.onmouseleave = () => { btn.style.background = 'var(--glass-bg)'; btn.style.borderColor = 'var(--glass-border)'; };
+    document.body.appendChild(btn);
+  }
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
@@ -687,7 +787,7 @@ async function renderDashboard() {
   const c = document.getElementById('mainContent');
   c.innerHTML = '<h1>Loading...</h1>';
 
-  const [stats, chartData] = await Promise.all([
+  const [stats, rawChartData] = await Promise.all([
     cachedApi(`/admin/dashboard/stats?range=${dashboardRange}`),
     dashboardRange === 'today'
       ? cachedApi('/admin/dashboard/hourly-usage').then(r => r.hours)
@@ -695,7 +795,8 @@ async function renderDashboard() {
   ]);
 
   const rangeLabel = { today: 'Today', '7d': '7 Days', '30d': '30 Days' }[dashboardRange];
-  const rangeData = chartData;
+  let chartData = rawChartData;
+  const rangeData = rawChartData;
   const isHourly = dashboardRange === 'today';
 
   c.innerHTML = `
@@ -730,7 +831,6 @@ async function renderDashboard() {
   `;
 
   // Build chart data: fill missing hours for hourly view
-  let chartData;
   let labels;
   if (isHourly) {
     const hourMap = {};
@@ -745,9 +845,10 @@ async function renderDashboard() {
     chartData = rangeData;
     labels = rangeData.map(d => (d.date || '').slice(5));
   }
-  const gridColor = 'rgba(255,255,255,0.03)';
-  const tickColor = '#6060a0';
-  const borderColor = 'rgba(255,255,255,0.05)';
+  const isLight = getTheme() === 'light';
+  const gridColor = isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.03)';
+  const tickColor = isLight ? '#8888a8' : '#6060a0';
+  const borderColor = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)';
   const tickFont = { size: 10 };
 
   if (chartData.length > 0) {
@@ -822,6 +923,94 @@ async function renderDashboard() {
     });
     });
   }
+}
+
+// ==================== User Section (independent time range) ====================
+async function renderUserSection() {
+  const distRange = window._userDistRange || 'today';
+  const rankRange = window._userRankRange || 'today';
+  const [distUsers, rankUsers] = await Promise.all([
+    cachedApi(`/admin/dashboard/user-stats?range=${distRange}`),
+    cachedApi(`/admin/dashboard/user-stats?range=${rankRange}`),
+  ]);
+  const distLabel = { today: 'Today', '7d': '7 Days', '30d': '30 Days' }[distRange];
+  const rankLabel = { today: 'Today', '7d': '7 Days', '30d': '30 Days' }[rankRange];
+
+  // Update section titles
+  const section = document.getElementById('userSection');
+  if (!section) return;
+  const titles = section.querySelectorAll('.section-title');
+  if (titles[0]) titles[0].innerHTML = `<i data-lucide="pie-chart" style="width:18px;height:18px"></i> User Distribution
+    <div style="margin-left:auto;display:flex;gap:6px">
+      <button class="range-btn ${distRange === 'today' ? 'active' : ''}" onclick="window._userDistRange='today';renderUserSection()">Today</button>
+      <button class="range-btn ${distRange === '7d' ? 'active' : ''}" onclick="window._userDistRange='7d';renderUserSection()">7 Days</button>
+      <button class="range-btn ${distRange === '30d' ? 'active' : ''}" onclick="window._userDistRange='30d';renderUserSection()">30 Days</button>
+    </div>`;
+  if (titles[1]) titles[1].innerHTML = `<i data-lucide="trophy" style="width:18px;height:18px"></i> User Ranking
+    <div style="margin-left:auto;display:flex;gap:6px">
+      <button class="range-btn ${rankRange === 'today' ? 'active' : ''}" onclick="window._userRankRange='today';renderUserSection()">Today</button>
+      <button class="range-btn ${rankRange === '7d' ? 'active' : ''}" onclick="window._userRankRange='7d';renderUserSection()">7 Days</button>
+      <button class="range-btn ${rankRange === '30d' ? 'active' : ''}" onclick="window._userRankRange='30d';renderUserSection()">30 Days</button>
+    </div>`;
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+
+  // Render distribution charts
+  const isLight = getTheme() === 'light';
+  const legendColor = isLight ? '#4a4a6a' : '#9090b0';
+  const chartColors = ['#00d4ff','#b44dff','#00ffaa','#ffd000','#ff4d6a','#00aaff','#ff8844','#44ddff','#dd44ff','#88ff44'];
+  function buildDoughnutData(arr, key, topN = 10) {
+    const sorted = [...arr].sort((a, b) => (b[key] || 0) - (a[key] || 0));
+    const top = sorted.slice(0, topN); const rest = sorted.slice(topN);
+    const restVal = rest.reduce((s, r) => s + (r[key] || 0), 0);
+    const labels = top.map(u => u.user_name || u.user_id?.slice(0, 8));
+    const data = top.map(u => key === 'cost_cents' ? +(u[key] / 100).toFixed(2) : u[key] || 0);
+    const colors = top.map((_, i) => chartColors[i % chartColors.length]);
+    if (restVal > 0) { labels.push('Others'); data.push(key === 'cost_cents' ? +(restVal / 100).toFixed(2) : restVal); colors.push('#404060'); }
+    return { labels, data, colors };
+  }
+
+  // Destroy old chart instances
+  ['chartUserRequests','chartUserTokens','chartUserCost'].forEach(id => {
+    const existing = Chart.getChart(id);
+    if (existing) existing.destroy();
+  });
+
+  const du = distUsers.users || [];
+  if (du.length > 0) {
+    requestAnimationFrame(() => {
+      const rd = buildDoughnutData(du,'requests');
+      const td = buildDoughnutData(du,'tokens');
+      const cd = buildDoughnutData(du,'cost_cents');
+      const doughnutOpts = (labels, data, colors, cb) => ({ type:'doughnut', data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:0,hoverOffset:8}]}, options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{position:'right',labels:{color:legendColor,font:{size:11},boxWidth:12,padding:8,...(cb?{callback:cb}:{})}}}} });
+      new Chart(document.getElementById('chartUserRequests'), doughnutOpts(rd.labels, rd.data, rd.colors));
+      new Chart(document.getElementById('chartUserTokens'), doughnutOpts(td.labels, td.data, td.colors));
+      const costLabels = cd.labels;
+      const costVals = cd.data;
+      new Chart(document.getElementById('chartUserCost'), doughnutOpts(costLabels, costVals, cd.colors, function(v){ return v+' ($'+costVals[costLabels.indexOf(v)]+')'; }));
+    });
+  }
+
+  // Render ranking table
+  const ru = rankUsers.users || [];
+  document.getElementById('userRankTable').innerHTML = `
+    <table>
+      <tr><th>#</th><th>User</th><th>Requests</th><th>Tokens</th><th>Cost</th><th>Errors</th><th>Error Rate</th><th>Last Active</th></tr>
+      ${ru.length === 0 ? '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:30px">No data</td></tr>' : ru.map((u, i) => {
+        const rankClass = i < 3 ? `rank-badge rank-${i + 1}` : '';
+        const errorRate = u.requests > 0 ? ((u.errors / u.requests) * 100).toFixed(1) : '0.0';
+        const errorRateColor = parseFloat(errorRate) > 5 ? 'var(--accent-red)' : parseFloat(errorRate) > 0 ? 'var(--accent-yellow)' : 'var(--text-muted)';
+        return `<tr>
+          <td>${i < 3 ? `<span class="${rankClass}">${i + 1}</span>` : (i + 1)}</td>
+          <td style="color:var(--text-primary);font-weight:500">${esc(u.user_name || u.user_id?.slice(0, 8))}</td>
+          <td>${fmtNum(u.requests)}</td>
+          <td>${fmtNum(u.tokens)}</td>
+          <td style="color:var(--accent-yellow)">${fmt$(u.cost_cents)}</td>
+          <td>${u.errors || 0}</td>
+          <td style="color:${errorRateColor}">${errorRate}%</td>
+          <td style="font-size:12px">${esc(u.last_active?.slice(5, 16)) || '-'}</td>
+        </tr>`;
+      }).join('')}
+    </table>`;
 }
 
 // ==================== Users ====================
@@ -917,10 +1106,23 @@ async function createKey(userId) {
 async function renderKeys() {
   const c = document.getElementById('mainContent');
   c.innerHTML = '<h1>Loading...</h1>';
-  const data = await api('/admin/api-keys');
+  const users = await fetchUsers();
+  const params = new URLSearchParams();
+  const filterUser = window._keysFilterUser || '';
+  const filterSearch = window._keysFilterSearch || '';
+  if (filterUser) params.set('user_id', filterUser);
+  if (filterSearch) params.set('search', filterSearch);
+  const data = await api(`/admin/api-keys?${params}`);
 
   c.innerHTML = `
     <div class="header"><h1>API Keys</h1></div>
+    <div class="toolbar">
+      <select style="min-width:160px" onchange="window._keysFilterUser=this.value;renderKeys()">
+        <option value="">All Users</option>
+        ${users.map(u => `<option value="${u.id}" ${u.id === filterUser ? 'selected' : ''}>${esc(u.name || u.email || u.id?.slice(0, 8))}</option>`).join('')}
+      </select>
+      <input type="text" placeholder="Search by name..." value="${esc(filterSearch)}" style="min-width:160px" oninput="window._keysFilterSearch=this.value;renderKeys()">
+    </div>
     <div class="table-wrap glass-static" style="padding:4px">
     <table>
       <tr><th>Prefix</th><th>User</th><th>Name</th><th>RPM</th><th>Last Used</th><th>Status</th><th>Created</th><th>Actions</th></tr>
@@ -939,6 +1141,9 @@ async function renderKeys() {
     </table>
     </div>
     ${data.keys.length === 0 ? '<div class="empty">No API keys yet</div>' : ''}
+    <div class="pagination">
+      <span>Total: ${data.total}</span>
+    </div>
   `;
 }
 
@@ -1208,13 +1413,62 @@ async function deleteRoute(id) {
 }
 
 // ==================== Usage Logs ====================
-async function renderUsage() {
+async function fetchUsers() {
+  const data = await cachedApi('/admin/users', 60000);
+  return data.users || [];
+}
+
+function userSelectHtml(selectedId) {
+  // Build options async — return placeholder, populate after
+  return `<select id="filterUser" onchange="applyUsageFilter()" style="min-width:160px">
+    <option value="">All Users</option>
+  </select>`;
+}
+
+async function populateUserSelect(selectId, selectedId) {
+  const users = await fetchUsers();
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = '<option value="">All Users</option>' +
+    users.map(u => `<option value="${u.id}" ${u.id === selectedId ? 'selected' : ''}>${esc(u.name || u.email || u.id?.slice(0, 8))}</option>`).join('');
+}
+
+async function renderUsage(page = 1) {
   const c = document.getElementById('mainContent');
   c.innerHTML = '<h1>Loading...</h1>';
-  const data = await api('/admin/usage');
+  const users = await fetchUsers();
+  const params = new URLSearchParams();
+  const filterUser = window._usageFilterUser || '';
+  const filterStatus = window._usageFilterStatus || '';
+  const filterDateFrom = window._usageFilterDateFrom || '';
+  const filterDateTo = window._usageFilterDateTo || '';
+  if (filterUser) params.set('user_id', filterUser);
+  if (filterStatus) params.set('status', filterStatus);
+  if (filterDateFrom) params.set('date_from', filterDateFrom);
+  if (filterDateTo) params.set('date_to', filterDateTo);
+  params.set('page', page);
+  const data = await api(`/admin/usage?${params}`);
+  const totalPages = Math.ceil(data.total / data.limit);
 
   c.innerHTML = `
     <div class="header"><h1>Usage Logs</h1></div>
+    <div class="toolbar">
+      <select id="filterUser" style="min-width:160px" onchange="window._usageFilterUser=this.value;renderUsage(1)">
+        <option value="">All Users</option>
+        ${users.map(u => `<option value="${u.id}" ${u.id === filterUser ? 'selected' : ''}>${esc(u.name || u.email || u.id?.slice(0, 8))}</option>`).join('')}
+      </select>
+      <select id="filterStatus" style="min-width:120px" onchange="window._usageFilterStatus=this.value;renderUsage(1)">
+        <option value="">All Status</option>
+        <option value="success" ${filterStatus === 'success' ? 'selected' : ''}>Success</option>
+        <option value="error" ${filterStatus === 'error' ? 'selected' : ''}>Error</option>
+        <option value="cancelled" ${filterStatus === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+      </select>
+      <input type="text" id="usageDateFrom" placeholder="From date" style="min-width:140px" value="${esc(filterDateFrom)}">
+      <span style="color:var(--text-muted)">~</span>
+      <input type="text" id="usageDateTo" placeholder="To date" style="min-width:140px" value="${esc(filterDateTo)}">
+      ${(filterDateFrom || filterDateTo) ? `<button class="btn sm" onclick="window._usageFilterDateFrom='';window._usageFilterDateTo='';renderUsage(1)">Clear</button>` : ''}
+    </div>
+    </div>
     <div class="table-wrap glass-static" style="padding:4px">
     <table>
       <tr><th>Time</th><th>User</th><th>Model</th><th>Provider</th><th>Tokens</th><th>Cost</th><th>Latency</th><th>Status</th></tr>
@@ -1233,17 +1487,40 @@ async function renderUsage() {
     </table>
     </div>
     ${data.logs.length === 0 ? '<div class="empty">No usage logs yet</div>' : ''}
+    ${totalPages > 1 ? `<div class="pagination"><button ${page <= 1 ? 'disabled' : ''} onclick="renderUsage(${page - 1})">&larr; Prev</button><span>${page} / ${totalPages} &nbsp;(${data.total} total)</span><button ${page >= totalPages ? 'disabled' : ''} onclick="renderUsage(${page + 1})">Next &rarr;</button></div>` : (data.total > 0 ? `<div class="pagination"><span>Total: ${data.total}</span></div>` : '')}
   `;
+  flatpickr('#usageDateFrom', { locale: 'en', dateFormat: 'Y-m-d', onChange(sel) { window._usageFilterDateFrom = sel[0] ? sel[0] : ''; renderUsage(); } });
+  flatpickr('#usageDateTo', { locale: 'en', dateFormat: 'Y-m-d', onChange(sel) { window._usageFilterDateTo = sel[0] ? sel[0] : ''; renderUsage(); } });
 }
 
 // ==================== Billing ====================
-async function renderBilling() {
+async function renderBilling(page = 1) {
   const c = document.getElementById('mainContent');
   c.innerHTML = '<h1>Loading...</h1>';
-  const data = await api('/admin/billing/transactions');
+  const users = await fetchUsers();
+  const params = new URLSearchParams();
+  const filterUser = window._billingFilterUser || '';
+  const filterDateFrom = window._billingFilterDateFrom || '';
+  const filterDateTo = window._billingFilterDateTo || '';
+  if (filterUser) params.set('user_id', filterUser);
+  if (filterDateFrom) params.set('date_from', filterDateFrom);
+  if (filterDateTo) params.set('date_to', filterDateTo);
+  params.set('page', page);
+  const data = await api(`/admin/billing/transactions?${params}`);
+  const totalPages = Math.ceil(data.total / data.limit);
 
   c.innerHTML = `
     <div class="header"><h1>Billing / Transactions</h1></div>
+    <div class="toolbar">
+      <select id="filterBillingUser" style="min-width:160px" onchange="window._billingFilterUser=this.value;renderBilling(1)">
+        <option value="">All Users</option>
+        ${users.map(u => `<option value="${u.id}" ${u.id === filterUser ? 'selected' : ''}>${esc(u.name || u.email || u.id?.slice(0, 8))}</option>`).join('')}
+      </select>
+      <input type="text" id="billingDateFrom" placeholder="From date" style="min-width:140px" value="${esc(filterDateFrom)}">
+      <span style="color:var(--text-muted)">~</span>
+      <input type="text" id="billingDateTo" placeholder="To date" style="min-width:140px" value="${esc(filterDateTo)}">
+      ${(filterDateFrom || filterDateTo) ? `<button class="btn sm" onclick="window._billingFilterDateFrom='';window._billingFilterDateTo='';renderBilling(1)">Clear dates</button>` : ''}
+    </div>
     <div class="table-wrap glass-static" style="padding:4px">
     <table>
       <tr><th>Time</th><th>User</th><th>Type</th><th>Amount</th><th>Balance After</th><th>Description</th></tr>
@@ -1260,7 +1537,10 @@ async function renderBilling() {
     </table>
     </div>
     ${data.transactions.length === 0 ? '<div class="empty">No transactions yet</div>' : ''}
+    ${totalPages > 1 ? `<div class="pagination"><button ${page <= 1 ? 'disabled' : ''} onclick="renderBilling(${page - 1})">&larr; Prev</button><span>${page} / ${totalPages} &nbsp;(${data.total} total)</span><button ${page >= totalPages ? 'disabled' : ''} onclick="renderBilling(${page + 1})">Next &rarr;</button></div>` : (data.total > 0 ? `<div class="pagination"><span>Total: ${data.total}</span></div>` : '')}
   `;
+  flatpickr('#billingDateFrom', { locale: 'en', dateFormat: 'Y-m-d', onChange(sel) { window._billingFilterDateFrom = sel[0] ? sel[0] : ''; renderBilling(); } });
+  flatpickr('#billingDateTo', { locale: 'en', dateFormat: 'Y-m-d', onChange(sel) { window._billingFilterDateTo = sel[0] ? sel[0] : ''; renderBilling(); } });
 }
 </script>
 </body>

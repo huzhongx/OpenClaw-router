@@ -71,6 +71,7 @@ router.post('/chat/completions', apiKeyAuth, rateLimit, async (req: Request, res
       apiKeyId: req.apiKeyId || null,
       modelId: body.model,
       providerId: '',
+      providerName: '',
       providerModelId: body.model,
       requestId,
       inputTokens: 0,
@@ -151,6 +152,7 @@ async function handleNonStreaming(
         apiKeyId: req.apiKeyId || null,
         modelId: body.model,
         providerId: entry.providerConfig.id,
+        providerName: entry.providerConfig.name,
         providerModelId: entry.providerModelId,
         requestId,
         inputTokens: usage.prompt_tokens,
@@ -260,6 +262,7 @@ async function handleStreaming(
       try {
         const providerStream = provider.chatStream(providerRequest, clientAbort.signal);
         let totalUsage = emptyUsage();
+        let streamFinished = false;
 
         // Use Transform stream to convert provider chunks to SSE format
         const { Readable, Transform } = await import('stream');
@@ -267,6 +270,7 @@ async function handleStreaming(
           objectMode: true,
           transform(chunk: any, _encoding, callback) {
             if (chunk.usage && isUsageValid(chunk.usage)) totalUsage = chunk.usage;
+            if (chunk.choices?.[0]?.finish_reason) streamFinished = true;
             const sseData = `data: ${JSON.stringify({
               id: chunk.id || requestId,
               object: 'chat.completion.chunk',
@@ -283,25 +287,45 @@ async function handleStreaming(
         });
 
         const readable = Readable.from(providerStream, { objectMode: true });
+        readable.on('error', (err) => {
+          // Prevent unhandledRejection from provider stream errors
+          if (!res.writableEnded) {
+            res.write(`data: ${JSON.stringify({ error: { message: String(err.message || err), type: 'upstream_error', code: 'stream_error' } })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            res.end();
+          }
+        });
         readable.pipe(sseTransform).pipe(res, { end: false });
 
         await new Promise<void>((resolve, reject) => {
           sseTransform.on('error', reject);
           sseTransform.on('end', resolve);
         });
-        res.end();
 
-        if (clientDisconnected) {
-          // Client aborted — bill for tokens consumed so far
-          const latencyMs = Date.now() - startTime;
-          const model = resolveModel(body.model);
-          const costCents = model ? toCents(calculateCost(totalUsage, model)) : 0;
+        // Snapshot disconnect state immediately after stream ends,
+        // BEFORE res.end() triggers req 'close' event
+        const wasCancelled = clientDisconnected;
+        // If the stream completed normally (got finish_reason), treat as success
+        // even if client disconnected after receiving all data
+        const status = (!wasCancelled || streamFinished) ? 'success' : 'cancelled';
+
+        const latencyMs = Date.now() - startTime;
+        const model = resolveModel(body.model);
+        const costCents = model ? toCents(calculateCost(totalUsage, model)) : 0;
+
+        if (!wasCancelled) {
+          res.end();
+        }
+
+        if (status === 'cancelled') {
+          // Client aborted mid-stream — bill for tokens consumed so far
           if (model && req.userId && totalUsage.total_tokens > 0) {
             deductUsage(req.userId!, totalUsage, model);
           }
           logUsage({
             userId: req.userId!, apiKeyId: req.apiKeyId || null,
             modelId: body.model, providerId: entry.providerConfig.id,
+            providerName: entry.providerConfig.name,
             providerModelId: entry.providerModelId, requestId,
             inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
             totalTokens: totalUsage.total_tokens, costCents, latencyMs,
@@ -313,15 +337,13 @@ async function handleStreaming(
         }
 
         // Post-stream billing
-        const latencyMs = Date.now() - startTime;
-        const model = resolveModel(body.model);
-        const costCents = model ? toCents(calculateCost(totalUsage, model)) : 0;
         if (model && req.userId) {
           deductUsage(req.userId!, totalUsage, model);
         }
         logUsage({
           userId: req.userId!, apiKeyId: req.apiKeyId || null,
           modelId: body.model, providerId: entry.providerConfig.id,
+          providerName: entry.providerConfig.name,
           providerModelId: entry.providerModelId, requestId,
           inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
           totalTokens: totalUsage.total_tokens, costCents, latencyMs,
@@ -368,6 +390,7 @@ async function handleStreaming(
       apiKeyId: req.apiKeyId || null,
       modelId: body.model,
       providerId: entries[0]?.providerConfig?.id || '',
+      providerName: entries[0]?.providerConfig?.name || '',
       providerModelId: entries[0]?.providerModelId || body.model,
       requestId,
       inputTokens: 0,

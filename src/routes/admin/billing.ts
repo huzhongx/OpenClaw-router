@@ -13,11 +13,15 @@ router.get('/transactions', (req: Request, res: Response) => {
   const offset = (page - 1) * limit;
   const userId = req.query.user_id as string;
   const type = req.query.type as string;
+  const dateFrom = req.query.date_from as string;
+  const dateTo = req.query.date_to as string;
 
   const conditions: string[] = [];
   const params: any[] = [];
   if (userId) { conditions.push('bt.user_id = ?'); params.push(userId); }
   if (type) { conditions.push('bt.type = ?'); params.push(type); }
+  if (dateFrom) { conditions.push('bt.created_at >= ?'); params.push(dateFrom); }
+  if (dateTo) { conditions.push('bt.created_at <= ?'); params.push(dateTo + ' 23:59:59'); }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 

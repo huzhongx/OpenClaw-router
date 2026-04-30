@@ -7,6 +7,7 @@ interface UsageLogRecord {
   apiKeyId: string | null;
   modelId: string;
   providerId: string;
+  providerName: string;
   providerModelId: string;
   requestId: string | null;
   inputTokens: number;
@@ -59,16 +60,16 @@ function flushBatch(batch: (UsageLogRecord & { id: string })[]): void {
     const db = getDb();
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     const stmt = db.prepare(`
-      INSERT INTO usage_logs (id, user_id, api_key_id, model_id, provider_id, provider_model_id,
+      INSERT INTO usage_logs (id, user_id, api_key_id, model_id, provider_id, provider_name, provider_model_id,
         request_id, input_tokens, output_tokens, total_tokens, cost_cents, latency_ms,
         status, error_message, ip_address, user_agent, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((records: typeof batch) => {
       for (const r of records) {
         stmt.run(
-          r.id, r.userId, r.apiKeyId, r.modelId, r.providerId, r.providerModelId,
+          r.id, r.userId, r.apiKeyId, r.modelId, r.providerId, r.providerName, r.providerModelId,
           r.requestId, r.inputTokens, r.outputTokens, r.totalTokens, r.costCents, r.latencyMs,
           r.status, r.errorMessage, r.ipAddress, r.userAgent, now
         );
