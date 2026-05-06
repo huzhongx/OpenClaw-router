@@ -127,6 +127,7 @@ export class OpenAIProvider extends BaseProvider {
     if (request.stop) body.stop = request.stop;
     if (request.stream !== undefined) body.stream = request.stream;
     if (request.tools?.length) body.tools = request.tools;
+    if (request.tool_choice) body.tool_choice = request.tool_choice;
     if (request.response_format) body.response_format = request.response_format;
     if (request.user) body.user = request.user;
     return body;

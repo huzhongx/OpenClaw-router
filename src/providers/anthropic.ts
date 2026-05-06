@@ -25,7 +25,9 @@ type AnthropicContent =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, any> }
-  | { type: 'tool_result'; tool_use_id: string; content: string };
+  | { type: 'tool_result'; tool_use_id: string; content: string | any[] }
+  | { type: 'thinking'; thinking: string }
+  | { type: 'redacted_thinking'; data: string };
 
 export class AnthropicProvider extends BaseProvider {
   private version = '2023-06-01';
@@ -49,6 +51,8 @@ export class AnthropicProvider extends BaseProvider {
     if (request.top_p !== undefined) body.top_p = request.top_p;
     if (request.stop) body.stop_sequences = request.stop;
     if (request.tools?.length) body.tools = this.convertTools(request.tools);
+    if (request.tool_choice) body.tool_choice = request.tool_choice;
+    if (request.thinking) body.thinking = request.thinking;
     if (request.user) body.metadata = { user_id: request.user };
 
     const res = await fetch(`${this.baseUrl}/messages`, {
@@ -79,6 +83,8 @@ export class AnthropicProvider extends BaseProvider {
     if (request.top_p !== undefined) body.top_p = request.top_p;
     if (request.stop) body.stop_sequences = request.stop;
     if (request.tools?.length) body.tools = this.convertTools(request.tools);
+    if (request.tool_choice) body.tool_choice = request.tool_choice;
+    if (request.thinking) body.thinking = request.thinking;
 
     // Use a much longer timeout for streaming (5 minutes) — the total
     // response can take minutes for thinking models.  The signal from the
@@ -120,7 +126,36 @@ export class AnthropicProvider extends BaseProvider {
           responseId = event.id || responseId;
           modelName = event.model || modelName;
 
-          if (eventType === 'content_block_delta') {
+          if (eventType === 'content_block_start') {
+            const block = event.content_block;
+            if (block?.type === 'tool_use') {
+              yield {
+                id: responseId,
+                model: modelName,
+                choices: [{
+                  index: 0,
+                  delta: {
+                    tool_calls: [{
+                      id: block.id || '',
+                      type: 'function',
+                      function: { name: block.name || '', arguments: '' },
+                    }],
+                  },
+                  finish_reason: null,
+                }],
+              };
+            } else if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
+              yield {
+                id: responseId,
+                model: modelName,
+                choices: [{
+                  index: 0,
+                  delta: { thinking: block.type === 'thinking' ? '' : undefined, thinking_signature: block.type === 'redacted_thinking' ? (block as any).data || '' : undefined },
+                  finish_reason: null,
+                }],
+              };
+            }
+          } else if (eventType === 'content_block_delta') {
             const delta = event.delta;
             if (delta.type === 'text_delta') {
               yield {
@@ -145,6 +180,26 @@ export class AnthropicProvider extends BaseProvider {
                       function: { name: '', arguments: delta.partial_json || '' },
                     }],
                   },
+                  finish_reason: null,
+                }],
+              };
+            } else if (delta.type === 'thinking_delta') {
+              yield {
+                id: responseId,
+                model: modelName,
+                choices: [{
+                  index: 0,
+                  delta: { thinking: delta.thinking || '' },
+                  finish_reason: null,
+                }],
+              };
+            } else if (delta.type === 'signature_delta') {
+              yield {
+                id: responseId,
+                model: modelName,
+                choices: [{
+                  index: 0,
+                  delta: { thinking_signature: delta.signature || '' },
                   finish_reason: null,
                 }],
               };
@@ -291,6 +346,18 @@ export class AnthropicProvider extends BaseProvider {
         }
       }
 
+      // Reconstruct thinking blocks preserved from original Anthropic messages
+      const thinkingBlocks = (msg as any)._thinking_blocks;
+      if (Array.isArray(thinkingBlocks)) {
+        for (const tb of thinkingBlocks) {
+          if (tb.type === 'thinking') {
+            anthropicMsg.content.push({ type: 'thinking', thinking: tb.thinking || '' });
+          } else if (tb.type === 'redacted_thinking') {
+            anthropicMsg.content.push({ type: 'redacted_thinking', data: tb.data || '' });
+          }
+        }
+      }
+
       result.push(anthropicMsg);
     }
 
@@ -320,6 +387,7 @@ export class AnthropicProvider extends BaseProvider {
 
     const toolCalls: ToolCall[] = [];
     const textParts: string[] = [];
+    const thinkingBlocks: any[] = [];
 
     for (const block of (data.content || [])) {
       if (block.type === 'text') {
@@ -333,6 +401,8 @@ export class AnthropicProvider extends BaseProvider {
             arguments: JSON.stringify(block.input || {}),
           },
         });
+      } else if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+        thinkingBlocks.push(block);
       }
     }
 
@@ -342,6 +412,9 @@ export class AnthropicProvider extends BaseProvider {
     };
     if (toolCalls.length > 0) {
       message.tool_calls = toolCalls;
+    }
+    if (thinkingBlocks.length > 0) {
+      (message as any)._thinking_blocks = thinkingBlocks;
     }
 
     return {

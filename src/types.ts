@@ -169,8 +169,10 @@ export interface ProviderRequest {
   stop?: string[];
   stream?: boolean;
   tools?: ToolDef[];
+  tool_choice?: any;
   response_format?: any;
   user?: string;
+  thinking?: any;
 }
 
 export interface TokenUsage {
@@ -205,6 +207,8 @@ export interface StreamChunk {
       role?: string;
       content?: string;
       tool_calls?: Partial<ToolCall>[];
+      thinking?: string;
+      thinking_signature?: string;
     };
     finish_reason: string | null;
   }>;

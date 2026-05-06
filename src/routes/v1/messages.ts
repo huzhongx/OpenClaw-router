@@ -17,7 +17,7 @@ const router = Router();
 // ============================================================
 
 const anthropicContentBlockSchema = z.object({
-  type: z.enum(['text', 'image', 'tool_use', 'tool_result']),
+  type: z.enum(['text', 'image', 'tool_use', 'tool_result', 'thinking', 'redacted_thinking']),
   text: z.string().optional(),
   source: z.object({ type: z.literal('base64'), media_type: z.string(), data: z.string() }).optional(),
   id: z.string().optional(),
@@ -25,6 +25,8 @@ const anthropicContentBlockSchema = z.object({
   input: z.any().optional(),
   tool_use_id: z.string().optional(),
   content: z.any().optional(),
+  thinking: z.string().optional(),
+  data: z.string().optional(),
 });
 
 const anthropicContentSchema = z.array(anthropicContentBlockSchema);
@@ -50,14 +52,18 @@ const messagesRequestSchema = z.object({
   stop_sequences: z.array(z.string()).optional(),
   stream: z.boolean().optional().default(false),
   tools: z.array(anthropicToolSchema).optional(),
+  tool_choice: z.any().optional(),
   metadata: z.any().optional(),
+  thinking: z.any().optional(),
 });
 
 type AnthropicContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, any> }
-  | { type: 'tool_result'; tool_use_id: string; content: string | any[] };
+  | { type: 'tool_result'; tool_use_id: string; content: string | any[] }
+  | { type: 'thinking'; thinking: string }
+  | { type: 'redacted_thinking'; data: string };
 
 type AnthropicRequest = z.infer<typeof messagesRequestSchema>;
 
@@ -149,10 +155,14 @@ function toProviderMessages(body: AnthropicRequest): Array<{ role: string; conte
       if (msg.role === 'assistant') {
         const textParts: string[] = [];
         const toolCalls: any[] = [];
+        const thinkingBlocks: any[] = [];
 
         for (const block of blocks) {
           if (block.type === 'text') {
             textParts.push(block.text || '');
+          } else if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+            // Preserve thinking blocks for Anthropic provider reconstruction
+            thinkingBlocks.push(block);
           } else if (block.type === 'tool_use') {
             toolCalls.push({
               id: block.id,
@@ -172,6 +182,9 @@ function toProviderMessages(body: AnthropicRequest): Array<{ role: string; conte
         if (toolCalls.length > 0) {
           msgObj.tool_calls = toolCalls;
         }
+        if (thinkingBlocks.length > 0) {
+          msgObj._thinking_blocks = thinkingBlocks;
+        }
         messages.push(msgObj);
       } else if (msg.role === 'user') {
         // For user messages, handle tool_result blocks
@@ -180,7 +193,11 @@ function toProviderMessages(body: AnthropicRequest): Array<{ role: string; conte
             const resultContent = typeof block.content === 'string'
               ? block.content
               : Array.isArray(block.content)
-                ? block.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+                ? block.content.map((b: any) => {
+                      if (b.type === 'text') return b.text || '';
+                      if (b.type === 'image' && b.source) return `data:${b.source.media_type};base64,${b.source.data}`;
+                      return '';
+                    }).filter(Boolean).join('')
                 : '';
             messages.push({
               role: 'tool',
@@ -248,6 +265,18 @@ function toAnthropicResponse(
     };
   }
 
+  // Thinking content (from Anthropic provider)
+  const thinkingBlocks = choice.message?._thinking_blocks;
+  if (Array.isArray(thinkingBlocks)) {
+    for (const tb of thinkingBlocks) {
+      if (tb.type === 'thinking') {
+        content.push({ type: 'thinking', thinking: tb.thinking || '' });
+      } else if (tb.type === 'redacted_thinking') {
+        content.push({ type: 'redacted_thinking', data: tb.data || '' });
+      }
+    }
+  }
+
   // Text content
   if (choice.message?.content) {
     content.push({ type: 'text', text: choice.message.content });
@@ -283,6 +312,8 @@ function toAnthropicResponse(
     usage: {
       input_tokens: usage.prompt_tokens || 0,
       output_tokens: usage.completion_tokens || 0,
+      cache_read_input_tokens: (usage as any).cache_read_input_tokens || 0,
+      cache_creation_input_tokens: (usage as any).cache_creation_input_tokens || 0,
     },
   };
 }
@@ -313,7 +344,9 @@ async function handleNonStreaming(
       max_tokens: body.max_tokens,
       stop: body.stop_sequences,
       tools: providerTools,
+      tool_choice: body.tool_choice,
       user: body.metadata?.user_id,
+      thinking: body.thinking,
     };
 
     try {
@@ -436,7 +469,9 @@ async function handleStreaming(
         stop: body.stop_sequences,
         stream: true,
         tools: providerTools,
+        tool_choice: body.tool_choice,
         user: body.metadata?.user_id,
+        thinking: body.thinking,
       };
 
       try {
@@ -463,6 +498,26 @@ async function handleStreaming(
               if (chunk.usage?.prompt_tokens) {
                 // We can't retroactively update message_start usage, but track it for billing
               }
+            } else if (choice.delta?.thinking !== undefined) {
+              if (currentBlockType !== 'thinking') {
+                if (currentBlockType !== null) {
+                  output += `event: content_block_stop\ndata: {"type":"content_block_stop","index":${currentBlockIndex}}\n\n`;
+                }
+                currentBlockIndex++;
+                currentBlockType = 'thinking';
+                output += `event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: currentBlockIndex, content_block: { type: 'thinking', thinking: '' } })}\n\n`;
+              }
+              output += `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: currentBlockIndex, delta: { type: 'thinking_delta', thinking: choice.delta.thinking } })}\n\n`;
+            } else if (choice.delta?.thinking_signature !== undefined) {
+              if (currentBlockType !== 'redacted_thinking') {
+                if (currentBlockType !== null) {
+                  output += `event: content_block_stop\ndata: {"type":"content_block_stop","index":${currentBlockIndex}}\n\n`;
+                }
+                currentBlockIndex++;
+                currentBlockType = 'redacted_thinking';
+                output += `event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: currentBlockIndex, content_block: { type: 'redacted_thinking', data: '' } })}\n\n`;
+              }
+              output += `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: currentBlockIndex, delta: { type: 'signature_delta', signature: choice.delta.thinking_signature } })}\n\n`;
             } else if (choice.delta?.content) {
               if (currentBlockType !== 'text') {
                 currentBlockIndex++;
@@ -492,6 +547,13 @@ async function handleStreaming(
             }
 
             callback(null, output || null);
+          },
+          flush(callback) {
+            // If stream ended without finish_reason, close any open content block
+            if (!streamFinished && currentBlockType !== null) {
+              res.write(`event: content_block_stop\ndata: {"type":"content_block_stop","index":${currentBlockIndex}}\n\n`);
+            }
+            callback();
           },
         });
 
