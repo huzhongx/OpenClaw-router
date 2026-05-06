@@ -5,47 +5,158 @@
 #     ''      close;
 # }
 
-server {
-    listen 443 ssl;
-    server_name huzhongxiang.cloud;
+# Rate limiting zone
+limit_req_zone $binary_remote_addr zone=api:10m rate=30r/m;
+limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/m;
 
-    ssl_certificate /root/.openclaw/workspace/openclaw-router/ssl/huzhongxiang.cloud_bundle.pem;
-    ssl_certificate_key /root/.openclaw/workspace/openclaw-router/ssl/huzhongxiang.cloud.key;
+# Upstream definition
+upstream openclaw {
+    server 127.0.0.1:3000;
+    keepalive 32;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+
+    # SSL 证书
+    ssl_certificate /etc/ssl/certs/your-domain_bundle.pem;
+    ssl_certificate_key /etc/ssl/private/your-domain.key;
 
     # SSL 优化
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
     ssl_prefer_server_ciphers on;
     ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # OCSP stapling
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    resolver 8.8.8.8 8.8.4.4 valid=300s;
+    resolver_timeout 5s;
+
+    # 请求体大小 (支持图片等 base64 内容)
+    client_max_body_size 50m;
 
     # 安全头
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header X-Frame-Options DENY always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
 
-    location / {
-        proxy_pass http://127.0.0.1:3000;
+    # 隐藏 nginx 版本
+    server_tokens off;
+
+    # 自定义错误页
+    error_page 403 404 /404.html;
+    error_page 413 /413.html;
+    error_page 500 502 503 504 /50x.html;
+
+    location = /404.html { internal; return 404 '{"type":"error","error":{"type":"not_found","message":"Not found"}}'; default_type application/json; }
+    location = /413.html { internal; return 413 '{"type":"error","error":{"type":"invalid_request_error","message":"Request body too large"}}'; default_type application/json; }
+    location = /50x.html { internal; return 502 '{"type":"error","error":{"type":"api_error","message":"Upstream error"}}'; default_type application/json; }
+
+    # Auth endpoints — strict rate limit
+    location /api/admin/login {
+        limit_req zone=auth burst=3 nodelay;
+        proxy_pass http://openclaw;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # API endpoints — general rate limit
+    location /api/ {
+        limit_req zone=api burst=20 nodelay;
+        proxy_pass http://openclaw;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # WebSocket support (only when client requests upgrade)
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
+        # 关闭请求缓冲，大 context 直接转发
+        proxy_request_buffering off;
 
-        # SSE streaming support (必须关闭缓冲)
+        # SSE streaming: 关闭响应缓冲
         proxy_buffering off;
         proxy_cache off;
-        proxy_read_timeout 300s;
+        # 10 分钟超时，覆盖 thinking 模型 + 复杂工具链
+        proxy_read_timeout 600s;
         proxy_send_timeout 300s;
+    }
+
+    # Anthropic Messages API — SSE streaming 专用
+    location /v1/messages {
+        proxy_pass http://openclaw;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE streaming: 完全关闭缓冲
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_request_buffering off;
+
+        # 10 分钟读超时 (thinking 模型可能长时间不产出 token)
+        proxy_read_timeout 600s;
+        proxy_send_timeout 300s;
+
+        # SSE 长连接优化
+        proxy_set_header Connection '';
+        proxy_http_version 1.1;
+        chunked_transfer_encoding off;
+    }
+
+    # OpenAI Chat Completions API — SSE streaming 专用
+    location /v1/chat/completions {
+        proxy_pass http://openclaw;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_request_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 300s;
+        proxy_set_header Connection '';
+        chunked_transfer_encoding off;
+    }
+
+    # 静态资源和 dashboard — 允许浏览器缓存
+    location / {
+        proxy_pass http://openclaw;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket support (dashboard 可能用到)
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+
+    # 健康检查 (不限速)
+    location /health {
+        proxy_pass http://openclaw;
+        proxy_http_version 1.1;
     }
 }
 
+# HTTP → HTTPS 重定向
 server {
     listen 80;
-    server_name huzhongxiang.cloud;
+    server_name your-domain.com;
     return 301 https://$host$request_uri;
 }
