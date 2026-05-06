@@ -111,6 +111,7 @@ router.post('/messages', apiKeyAuth, rateLimit, async (req: Request, res: Respon
       totalTokens: 0,
       costCents: 0,
       latencyMs,
+      ttftMs: null,
       status: 'error',
       errorMessage: err.message || String(err),
       ipAddress: req.ip || null,
@@ -373,6 +374,7 @@ async function handleNonStreaming(
         totalTokens: usage.total_tokens,
         costCents,
         latencyMs,
+        ttftMs: latencyMs,
         status: 'success',
         errorMessage: null,
         ipAddress: req.ip || null,
@@ -457,6 +459,8 @@ async function handleStreaming(
   const errors: ProviderError[] = [];
 
   try {
+    let ttftMs: number | null = null;
+
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       const provider = createProvider(entry.providerConfig);
@@ -487,6 +491,11 @@ async function handleStreaming(
           objectMode: true,
           transform(chunk: any, _encoding, callback) {
             if (chunk.usage && isUsageValid(chunk.usage)) totalUsage = chunk.usage;
+
+            // Capture TTFT on first meaningful chunk (content, tool_calls, thinking — not just role)
+            if (ttftMs === null && chunk.choices?.[0]?.delta && !chunk.choices[0].delta.role) {
+              ttftMs = Date.now() - startTime;
+            }
 
             const choice = chunk.choices?.[0];
             if (!choice) return callback(null, null);
@@ -597,7 +606,7 @@ async function handleStreaming(
             providerName: entry.providerConfig.name,
             providerModelId: entry.providerModelId, requestId,
             inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
-            totalTokens: totalUsage.total_tokens, costCents, latencyMs,
+            totalTokens: totalUsage.total_tokens, costCents, latencyMs, ttftMs,
             status: 'cancelled', errorMessage: 'Client disconnected',
             ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
           });
@@ -615,7 +624,7 @@ async function handleStreaming(
           providerName: entry.providerConfig.name,
           providerModelId: entry.providerModelId, requestId,
           inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
-          totalTokens: totalUsage.total_tokens, costCents, latencyMs,
+          totalTokens: totalUsage.total_tokens, costCents, latencyMs, ttftMs,
           status: 'success', errorMessage: null,
           ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
         });
@@ -665,6 +674,7 @@ async function handleStreaming(
       totalTokens: 0,
       costCents: 0,
       latencyMs,
+      ttftMs: null,
       status: 'error',
       errorMessage: errors.map(e => e.message).join('; '),
       ipAddress: req.ip || null,

@@ -26,6 +26,9 @@ export function getDb(): Database.Database {
     const schema = fs.readFileSync(path.resolve(__dirname, 'schema.sql'), 'utf-8');
     db.exec(schema);
 
+    // Migration: add ttft_ms column if missing
+    try { db.exec('ALTER TABLE usage_logs ADD COLUMN ttft_ms INTEGER'); } catch { /* column already exists */ }
+
     logger.info({ dbPath }, 'Database initialized');
   }
   return db;

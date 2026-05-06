@@ -98,6 +98,7 @@ export interface UsageLogRow {
   total_tokens: number;
   cost_cents: number;
   latency_ms: number | null;
+  ttft_ms: number | null;
   status: string;
   error_message: string | null;
   ip_address: string | null;

@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OpenClaw Router</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>🦀</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&family=Outfit:wght@300;500;700&display=swap" rel="stylesheet">
@@ -696,7 +697,7 @@ function showApp() {
     btn.href = '#';
     btn.title = 'Toggle theme';
     btn.onclick = (e) => { e.preventDefault(); toggleTheme(); };
-    btn.style.cssText = 'position:fixed;top:20px;right:20px;z-index:50;padding:10px;border-radius:10px;border:1px solid var(--glass-border);background:var(--glass-bg);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;transition:all 0.2s;cursor:pointer;';
+    btn.style.cssText = 'position:fixed;bottom:20px;left:20px;z-index:50;padding:10px;border-radius:10px;border:1px solid var(--glass-border);background:var(--glass-bg);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;transition:all 0.2s;cursor:pointer;';
     btn.innerHTML = '<i id="themeIcon" data-lucide="sun" style="width:18px;height:18px;opacity:0.7"></i>';
     btn.onmouseenter = () => { btn.style.background = 'var(--glass-bg-hover)'; btn.style.borderColor = 'var(--glass-border-hover)'; };
     btn.onmouseleave = () => { btn.style.background = 'var(--glass-bg)'; btn.style.borderColor = 'var(--glass-border)'; };
@@ -707,7 +708,7 @@ function showApp() {
 
 // Check session on load
 api('/admin/me').then(data => {
-  if (data.admin) { admin = data.admin; showApp(); }
+  if (data.admin) { admin = data.admin; showApp(); handleRoute(); }
 }).catch(() => {});
 
 // Enter key for login
@@ -719,6 +720,8 @@ window.addEventListener('load', () => setTimeout(handleRoute, 100));
 
 function handleRoute() {
   if (document.getElementById('appPage').classList.contains('hidden')) return;
+  // Stop auto-refresh when leaving usage page
+  if (location.hash !== '#/usage') stopUsageAutoRefresh();
 
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.remove('active'));
   const hash = location.hash || '#/dashboard';
@@ -754,6 +757,17 @@ document.getElementById('modalOverlay').addEventListener('click', e => {
 
 // ==================== Helpers ====================
 function fmt$(cents) { return '$' + (cents / 100).toFixed(2); }
+function fmtTtft(ms) {
+  if (!ms) return '-';
+  const color = ms < 3000 ? 'var(--accent-green)' : ms < 10000 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+  return `<span style="color:${color}">${ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms'}</span>`;
+}
+function fmtBeijing(isoStr, mode) {
+  if (!isoStr) return '-';
+  const d = new Date((isoStr.endsWith('Z') ? isoStr : isoStr + 'Z'));
+  const s = d.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', hour12: false });
+  return mode === 'short' ? s.slice(5, 16) : mode === 'date' ? s.slice(0, 10) : s;
+}
 function fmtNum(n) { return (n || 0).toLocaleString(); }
 function esc(s) { return s ? String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''; }
 function statusBadge(active) { return `<span class="badge ${active ? 'active' : 'inactive'}">${active ? 'Active' : 'Inactive'}</span>`; }
@@ -830,11 +844,17 @@ async function renderDashboard() {
     </div>
   `;
 
-  // Build chart data: fill missing hours for hourly view
+  // Build chart data: fill missing hours for hourly view (convert to Beijing time)
+  const bjOffset = 8 * 60; // UTC+8 in minutes
   let labels;
   if (isHourly) {
     const hourMap = {};
-    rangeData.forEach(d => { hourMap[(d.hour || '').slice(11, 13)] = d; });
+    rangeData.forEach(d => {
+      // Convert server hour to Beijing hour
+      const utcH = parseInt((d.hour || '').slice(11, 13));
+      const bjH = (utcH + 8) % 24;
+      hourMap[String(bjH).padStart(2, '0')] = d;
+    });
     chartData = Array.from({ length: 24 }, (_, i) => {
       const h = String(i).padStart(2, '0');
       const d = hourMap[h];
@@ -843,7 +863,11 @@ async function renderDashboard() {
     labels = chartData.map((_, i) => String(i).padStart(2, '0') + ':00');
   } else {
     chartData = rangeData;
-    labels = rangeData.map(d => (d.date || '').slice(5));
+    labels = rangeData.map(d => {
+      if (!d.date) return '';
+      const dt = new Date(d.date + 'T00:00:00Z');
+      return dt.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(5, 10);
+    });
   }
   const isLight = getTheme() === 'light';
   const gridColor = isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.03)';
@@ -1007,7 +1031,7 @@ async function renderUserSection() {
           <td style="color:var(--accent-yellow)">${fmt$(u.cost_cents)}</td>
           <td>${u.errors || 0}</td>
           <td style="color:${errorRateColor}">${errorRate}%</td>
-          <td style="font-size:12px">${esc(u.last_active?.slice(5, 16)) || '-'}</td>
+          <td style="font-size:12px">${fmtBeijing(u.last_active, 'short')}</td>
         </tr>`;
       }).join('')}
     </table>`;
@@ -1031,7 +1055,7 @@ async function renderUsers() {
           <td style="color:var(--accent-yellow)">${fmt$(u.balance_cents)}</td>
           <td>${u.active_keys || 0}</td>
           <td>${statusBadge(u.is_active)}</td>
-          <td>${esc(u.created_at?.slice(0, 10))}</td>
+          <td>${fmtBeijing(u.created_at, 'date')}</td>
           <td>
             <button class="btn sm" onclick="showTopUpModal('${u.id}', '${esc(u.name)}')">Top Up</button>
             <button class="btn sm" onclick="showCreateKeyModal('${u.id}')">+ Key</button>
@@ -1132,9 +1156,9 @@ async function renderKeys() {
           <td>${esc(k.user_name)}</td>
           <td style="color:var(--text-primary)">${esc(k.name)}</td>
           <td>${k.rate_limit_rpm}</td>
-          <td>${esc(k.last_used_at?.slice(0, 16)) || '-'}</td>
+          <td>${fmtBeijing(k.last_used_at, 'short')}</td>
           <td>${statusBadge(k.is_active)}</td>
-          <td>${esc(k.created_at?.slice(0, 10))}</td>
+          <td>${fmtBeijing(k.created_at, 'date')}</td>
           <td><button class="btn sm danger" onclick="revokeKey('${k.id}')">Revoke</button></td>
         </tr>
       `).join('')}
@@ -1433,10 +1457,17 @@ async function populateUserSelect(selectId, selectedId) {
     users.map(u => `<option value="${u.id}" ${u.id === selectedId ? 'selected' : ''}>${esc(u.name || u.email || u.id?.slice(0, 8))}</option>`).join('');
 }
 
-async function renderUsage(page = 1) {
-  const c = document.getElementById('mainContent');
-  c.innerHTML = '<h1>Loading...</h1>';
-  const users = await fetchUsers();
+// ==================== Usage Auto-Refresh ====================
+let _usageAutoRefreshTimer = null;
+let _usageAutoRefreshEnabled = true;
+let _usageAutoRefreshInterval = 10; // seconds
+let _usageCurrentPage = 1;
+
+function stopUsageAutoRefresh() {
+  if (_usageAutoRefreshTimer) { clearInterval(_usageAutoRefreshTimer); _usageAutoRefreshTimer = null; }
+}
+
+function _usageBuildParams(page) {
   const params = new URLSearchParams();
   const filterUser = window._usageFilterUser || '';
   const filterStatus = window._usageFilterStatus || '';
@@ -1447,11 +1478,91 @@ async function renderUsage(page = 1) {
   if (filterDateFrom) params.set('date_from', filterDateFrom);
   if (filterDateTo) params.set('date_to', filterDateTo);
   params.set('page', page);
-  const data = await api(`/admin/usage?${params}`);
+  return params;
+}
+
+function _usageRenderRows(data, page) {
   const totalPages = Math.ceil(data.total / data.limit);
+  const tbody = document.getElementById('usageTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = data.logs.map(l => `
+    <tr>
+      <td style="white-space:nowrap;font-size:12px">${fmtBeijing(l.created_at)}</td>
+      <td style="color:var(--text-primary)">${esc(l.user_name)}</td>
+      <td><code>${esc(l.model_id)}</code></td>
+      <td>${esc(l.provider_name)}</td>
+      <td>${fmtNum(l.total_tokens)}</td>
+      <td style="color:var(--accent-yellow)">${fmt$(l.cost_cents)}</td>
+      <td>${l.latency_ms ? l.latency_ms + 'ms' : '-'}</td>
+      <td>${fmtTtft(l.ttft_ms)}</td>
+      <td><span class="badge ${l.status}">${l.status}</span></td>
+    </tr>
+  `).join('');
+  const emptyEl = document.getElementById('usageEmpty');
+  if (emptyEl) emptyEl.style.display = data.logs.length === 0 ? '' : 'none';
+  const pagEl = document.getElementById('usagePagination');
+  if (pagEl) pagEl.innerHTML = totalPages > 1
+    ? `<button ${page <= 1 ? 'disabled' : ''} onclick="renderUsage(${page - 1})">&larr; Prev</button><span>${page} / ${totalPages} &nbsp;(${data.total} total)</span><button ${page >= totalPages ? 'disabled' : ''} onclick="renderUsage(${page + 1})">Next &rarr;</button>`
+    : (data.total > 0 ? `<span>Total: ${data.total}</span>` : '');
+}
+
+async function refreshUsageTable() {
+  try {
+    const data = await api(`/admin/usage?${_usageBuildParams(_usageCurrentPage)}`);
+    _usageRenderRows(data, _usageCurrentPage);
+  } catch (e) {}
+}
+
+function startUsageAutoRefresh() {
+  stopUsageAutoRefresh();
+  if (!_usageAutoRefreshEnabled) return;
+  _usageAutoRefreshTimer = setInterval(() => {
+    if (location.hash === '#/usage') refreshUsageTable();
+  }, _usageAutoRefreshInterval * 1000);
+  updateAutoRefreshUI();
+}
+
+function toggleUsageAutoRefresh() {
+  _usageAutoRefreshEnabled = !_usageAutoRefreshEnabled;
+  if (_usageAutoRefreshEnabled) startUsageAutoRefresh();
+  else stopUsageAutoRefresh();
+  updateAutoRefreshUI();
+}
+
+function setUsageRefreshInterval(sec) {
+  _usageAutoRefreshInterval = sec;
+  if (_usageAutoRefreshEnabled) startUsageAutoRefresh();
+  updateAutoRefreshUI();
+}
+
+function updateAutoRefreshUI() {
+  const indicator = document.getElementById('autoRefreshIndicator');
+  if (!indicator) return;
+  if (_usageAutoRefreshEnabled) {
+    indicator.innerHTML = `<span class="badge active" style="font-size:11px">Auto</span> <select onchange="setUsageRefreshInterval(+this.value)" style="padding:4px 8px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:6px;color:var(--text-primary);font-size:12px;font-family:inherit">${[5,10,15,30,60].map(s => `<option value="${s}" ${s === _usageAutoRefreshInterval ? 'selected' : ''}>${s}s</option>`).join('')}</select>`;
+  } else {
+    indicator.innerHTML = `<span class="badge inactive" style="font-size:11px">Paused</span>`;
+  }
+}
+
+async function renderUsage(page = 1) {
+  _usageCurrentPage = page;
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<h1>Loading...</h1>';
+  try {
+  const users = await fetchUsers();
+  const data = await api(`/admin/usage?${_usageBuildParams(page)}`);
+  const totalPages = Math.ceil(data.total / data.limit);
+  const filterUser = window._usageFilterUser || '';
+  const filterStatus = window._usageFilterStatus || '';
+  const filterDateFrom = window._usageFilterDateFrom || '';
+  const filterDateTo = window._usageFilterDateTo || '';
 
   c.innerHTML = `
-    <div class="header"><h1>Usage Logs</h1></div>
+    <div class="header"><h1>Usage Logs</h1><div style="display:flex;align-items:center;gap:8px">
+      <span id="autoRefreshIndicator"></span>
+      <button class="btn sm" onclick="toggleUsageAutoRefresh()" title="${_usageAutoRefreshEnabled ? 'Pause' : 'Resume'} auto-refresh"><i data-lucide="${_usageAutoRefreshEnabled ? 'pause' : 'play'}" style="width:14px;height:14px"></i></button>
+    </div></div>
     <div class="toolbar">
       <select id="filterUser" style="min-width:160px" onchange="window._usageFilterUser=this.value;renderUsage(1)">
         <option value="">All Users</option>
@@ -1468,29 +1579,22 @@ async function renderUsage(page = 1) {
       <input type="text" id="usageDateTo" placeholder="To date" style="min-width:140px" value="${esc(filterDateTo)}">
       ${(filterDateFrom || filterDateTo) ? `<button class="btn sm" onclick="window._usageFilterDateFrom='';window._usageFilterDateTo='';renderUsage(1)">Clear</button>` : ''}
     </div>
-    </div>
     <div class="table-wrap glass-static" style="padding:4px">
     <table>
-      <tr><th>Time</th><th>User</th><th>Model</th><th>Provider</th><th>Tokens</th><th>Cost</th><th>Latency</th><th>Status</th></tr>
-      ${data.logs.map(l => `
-        <tr>
-          <td style="white-space:nowrap;font-size:12px">${esc(l.created_at?.slice(0, 19))}</td>
-          <td style="color:var(--text-primary)">${esc(l.user_name)}</td>
-          <td><code>${esc(l.model_id)}</code></td>
-          <td>${esc(l.provider_name)}</td>
-          <td>${fmtNum(l.total_tokens)}</td>
-          <td style="color:var(--accent-yellow)">${fmt$(l.cost_cents)}</td>
-          <td>${l.latency_ms ? l.latency_ms + 'ms' : '-'}</td>
-          <td><span class="badge ${l.status}">${l.status}</span></td>
-        </tr>
-      `).join('')}
+      <tr><th>Time</th><th>User</th><th>Model</th><th>Provider</th><th>Tokens</th><th>Cost</th><th>Latency</th><th>TTFT</th><th>Status</th></tr>
+      <tbody id="usageTableBody"></tbody>
     </table>
     </div>
-    ${data.logs.length === 0 ? '<div class="empty">No usage logs yet</div>' : ''}
-    ${totalPages > 1 ? `<div class="pagination"><button ${page <= 1 ? 'disabled' : ''} onclick="renderUsage(${page - 1})">&larr; Prev</button><span>${page} / ${totalPages} &nbsp;(${data.total} total)</span><button ${page >= totalPages ? 'disabled' : ''} onclick="renderUsage(${page + 1})">Next &rarr;</button></div>` : (data.total > 0 ? `<div class="pagination"><span>Total: ${data.total}</span></div>` : '')}
+    <div id="usageEmpty" style="${data.logs.length === 0 ? '' : 'display:none'}" class="empty">No usage logs yet</div>
+    <div id="usagePagination" class="pagination"></div>
   `;
+  _usageRenderRows(data, page);
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+  updateAutoRefreshUI();
+  startUsageAutoRefresh();
   flatpickr('#usageDateFrom', { locale: 'en', dateFormat: 'Y-m-d', onChange(sel) { window._usageFilterDateFrom = sel[0] ? sel[0] : ''; renderUsage(); } });
   flatpickr('#usageDateTo', { locale: 'en', dateFormat: 'Y-m-d', onChange(sel) { window._usageFilterDateTo = sel[0] ? sel[0] : ''; renderUsage(); } });
+  } catch (e) { c.innerHTML = '<div class="empty">Failed to load usage logs</div>'; }
 }
 
 // ==================== Billing ====================
@@ -1526,7 +1630,7 @@ async function renderBilling(page = 1) {
       <tr><th>Time</th><th>User</th><th>Type</th><th>Amount</th><th>Balance After</th><th>Description</th></tr>
       ${data.transactions.map(t => `
         <tr>
-          <td style="white-space:nowrap;font-size:12px">${esc(t.created_at?.slice(0, 19))}</td>
+          <td style="white-space:nowrap;font-size:12px">${fmtBeijing(t.created_at)}</td>
           <td style="color:var(--text-primary)">${esc(t.user_name)}</td>
           <td><span class="badge ${t.type === 'topup' ? 'success' : ''}">${t.type}</span></td>
           <td style="color:${t.amount_cents > 0 ? 'var(--accent-green)' : 'var(--accent-red)'};font-weight:500">${t.amount_cents > 0 ? '+' : ''}${fmt$(t.amount_cents)}</td>

@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS usage_logs (
   total_tokens        INTEGER NOT NULL DEFAULT 0,
   cost_cents          INTEGER NOT NULL DEFAULT 0,
   latency_ms          INTEGER,
+  ttft_ms             INTEGER,
   status              TEXT NOT NULL DEFAULT 'success',
   error_message       TEXT,
   ip_address          TEXT,
