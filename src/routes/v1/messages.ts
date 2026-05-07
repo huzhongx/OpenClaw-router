@@ -493,8 +493,9 @@ async function handleStreaming(
           transform(chunk: any, _encoding, callback) {
             if (chunk.usage && isUsageValid(chunk.usage)) totalUsage = chunk.usage;
 
-            // Capture TTFT on first chunk with content (skip role-only chunks)
-            if (ttftMs === null && chunk.choices?.[0]?.delta?.content) {
+            // Capture TTFT on first chunk with any output (content, thinking, tool_calls)
+            const delta = chunk.choices?.[0]?.delta;
+            if (ttftMs === null && delta && (delta.content || delta.thinking || delta.tool_calls)) {
               ttftMs = Date.now() - startTime;
             }
 
