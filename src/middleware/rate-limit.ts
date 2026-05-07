@@ -34,17 +34,11 @@ export function rateLimit(req: Request, res: Response, next: NextFunction): void
 
   entry.tokens++;
 
-  // Set rate limit headers
   res.setHeader('X-RateLimit-Limit', rpm);
   res.setHeader('X-RateLimit-Remaining', Math.max(0, rpm - entry.tokens));
   res.setHeader('X-RateLimit-Reset', Math.ceil(entry.resetAt / 1000));
 
   if (entry.tokens > rpm) {
-    if (res.headersSent) {
-      res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'Rate limit exceeded' } })}\n\n`);
-      res.end();
-      return;
-    }
     res.status(429).json({
       error: {
         message: 'Rate limit exceeded. Please slow down.',

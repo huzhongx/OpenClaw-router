@@ -1,23 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 import { validateApiKey } from '../services/key-manager';
-import { config } from '../config';
-
-function sendError(req: Request, res: Response, status: number, message: string, code: string): void {
-  // If SSE headers already flushed, send error as SSE event
-  if (res.headersSent) {
-    res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'api_error', message } })}\n\n`);
-    res.end();
-    return;
-  }
-  res.status(status).json({
-    error: {
-      message,
-      type: 'invalid_request_error',
-      param: null,
-      code,
-    },
-  });
-}
 
 export function apiKeyAuth(req: Request, res: Response, next: NextFunction): void {
   // Support both Authorization: Bearer xxx and x-api-key: xxx
@@ -30,14 +12,28 @@ export function apiKeyAuth(req: Request, res: Response, next: NextFunction): voi
   }
 
   if (!rawKey) {
-    sendError(req, res, 401, 'Invalid API key format. Expected: Bearer xxx or x-api-key header', 'invalid_api_key');
+    res.status(401).json({
+      error: {
+        message: 'Invalid API key format. Expected: Bearer xxx or x-api-key header',
+        type: 'invalid_request_error',
+        param: null,
+        code: 'invalid_api_key',
+      },
+    });
     return;
   }
 
   const result = validateApiKey(rawKey);
 
   if (!result) {
-    sendError(req, res, 401, 'Invalid API key', 'invalid_api_key');
+    res.status(401).json({
+      error: {
+        message: 'Invalid API key',
+        type: 'invalid_request_error',
+        param: null,
+        code: 'invalid_api_key',
+      },
+    });
     return;
   }
 

@@ -23,63 +23,6 @@ import userBalanceRouter from './routes/user/balance';
 import userUsageRouter from './routes/user/usage';
 import userKeysRouter from './routes/user/keys';
 
-/**
- * Raw body parser for streaming API routes.
- * Replaces express.json() with manual collection — higher limit (50MB),
- * 30s body-read timeout, and parses JSON into req.body.
- */
-function rawBodyParser(maxBytes: number, timeoutMs: number) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    if (req.method !== 'POST' && req.method !== 'PUT') return next();
-
-    let settled = false;
-    const timer = setTimeout(() => {
-      settled = true;
-      if (!res.headersSent) {
-        res.status(408).json({ type: 'error', error: { type: 'timeout', message: 'Request body read timeout' } });
-      }
-      req.destroy();
-    }, timeoutMs);
-
-    const chunks: Buffer[] = [];
-    let size = 0;
-
-    req.on('data', (chunk: Buffer) => {
-      if (settled) return;
-      size += chunk.length;
-      if (size > maxBytes) {
-        settled = true;
-        clearTimeout(timer);
-        if (!res.headersSent) {
-          res.status(413).json({ type: 'error', error: { type: 'invalid_request_error', message: 'Request body too large' } });
-        }
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-
-    req.on('end', () => {
-      if (settled) return;
-      clearTimeout(timer);
-      try {
-        req.body = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
-      } catch {
-        if (!res.headersSent) {
-          res.status(400).json({ type: 'error', error: { type: 'invalid_request_error', message: 'Invalid JSON in request body' } });
-          return;
-        }
-      }
-      next();
-    });
-
-    req.on('error', () => {
-      clearTimeout(timer);
-      if (!settled && !res.headersSent) res.status(400).end();
-    });
-  };
-}
-
 export function createApp(): express.Application {
   const app = express();
 
@@ -90,6 +33,10 @@ export function createApp(): express.Application {
     credentials: true,
   }));
 
+  // Body parsing (50MB for large Claude Code requests with tools/context)
+  app.use(express.json({ limit: '50mb' }));
+  app.use(cookieParser());
+
   // Compression (gzip) — skip for SSE streams to avoid buffering
   app.use(compression({
     filter: (req, res) => {
@@ -99,32 +46,6 @@ export function createApp(): express.Application {
       return compression.filter(req, res);
     },
   }));
-
-  // ---- Streaming API routes: send SSE headers before body parsing ----
-
-  // Phase 1: Flush SSE headers immediately so client sees connection established
-  // Only set headers — do NOT write any body content here.
-  // If auth/body parsing fails later, the error handler can still send a proper response.
-  app.use('/v1/messages', (req: Request, res: Response, next: NextFunction) => {
-    if (req.method === 'POST') {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no');
-      res.flushHeaders();
-    }
-    next();
-  });
-
-  // Phase 2: Raw body collector for /v1/messages (50MB limit, 30s timeout)
-  app.use('/v1/messages', rawBodyParser(50 * 1024 * 1024, 30_000));
-
-  // Phase 3: Raw body collector for /v1/chat/completions (50MB limit, 30s timeout)
-  app.use('/v1/chat/completions', rawBodyParser(50 * 1024 * 1024, 30_000));
-
-  // Body parsing for all other routes
-  app.use(express.json({ limit: '10mb' }));
-  app.use(cookieParser());
 
   // Request logging
   if (config.logRequests) {
