@@ -87,21 +87,25 @@ export class AnthropicProvider extends BaseProvider {
     if (request.thinking) body.thinking = request.thinking;
 
     // Connection timeout: 30s to establish connection and receive headers from upstream.
-    // fetch() returns when headers arrive, so this only covers the initial connection.
-    // After headers, stream reads are controlled by the client abort signal.
+    // Use manual AbortController + clearTimeout so timeout only covers fetch(),
+    // NOT the subsequent stream reading.
     const CONNECT_TIMEOUT = 30_000;
+    const connectController = new AbortController();
+    const connectTimer = setTimeout(() => connectController.abort(), CONNECT_TIMEOUT);
     let res: Response;
     try {
+      const fetchSignal = signal
+        ? AbortSignal.any([signal, connectController.signal])
+        : connectController.signal;
       res = await fetch(`${this.baseUrl}/messages`, {
         method: 'POST',
         headers: this.headers(),
         body: JSON.stringify(body),
-        signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(CONNECT_TIMEOUT)])
-          : AbortSignal.timeout(CONNECT_TIMEOUT),
+        signal: fetchSignal,
       });
     } catch (err: any) {
-      if (err?.name === 'TimeoutError' || err?.message?.includes('Timeout')) {
+      clearTimeout(connectTimer);
+      if (connectController.signal.aborted && !signal?.aborted) {
         const pe = new Error('Upstream connection timeout (30s)') as Error & ProviderError;
         pe.status = 504;
         pe.retryable = true;
@@ -110,6 +114,7 @@ export class AnthropicProvider extends BaseProvider {
       }
       throw err;
     }
+    clearTimeout(connectTimer);
     if (!res.ok) {
       throw await this.handleError(res);
     }

@@ -234,11 +234,13 @@ async function handleStreaming(
     clientDisconnected = true;
     clientAbort.abort();
   };
-  req.on('close', onClientClose);
+  // Use res 'close' instead of req 'close' — only fires when connection
+  // is closed BEFORE response.end(), avoiding false positives in Node.js v22
+  res.on('close', onClientClose);
 
   // Cleanup helper
   const cleanup = () => {
-    req.off('close', onClientClose);
+    res.off('close', onClientClose);
     clearInterval(pingInterval);
   };
 

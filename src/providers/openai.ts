@@ -46,19 +46,25 @@ export class OpenAIProvider extends BaseProvider {
 
   async *chatStream(request: ProviderRequest, signal?: AbortSignal): AsyncIterable<StreamChunk> {
     const body = this.buildBody({ ...request, stream: true });
+    // Use manual AbortController + clearTimeout so timeout only covers fetch(),
+    // NOT the subsequent stream reading.
     const CONNECT_TIMEOUT = 30_000;
+    const connectController = new AbortController();
+    const connectTimer = setTimeout(() => connectController.abort(), CONNECT_TIMEOUT);
     let res: Response;
     try {
+      const fetchSignal = signal
+        ? AbortSignal.any([signal, connectController.signal])
+        : connectController.signal;
       res = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: this.headers(),
         body: JSON.stringify(body),
-        signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(CONNECT_TIMEOUT)])
-          : AbortSignal.timeout(CONNECT_TIMEOUT),
+        signal: fetchSignal,
       });
     } catch (err: any) {
-      if (err?.name === 'TimeoutError' || err?.message?.includes('Timeout')) {
+      clearTimeout(connectTimer);
+      if (connectController.signal.aborted && !signal?.aborted) {
         const pe = new Error('Upstream connection timeout (30s)') as Error & ProviderError;
         pe.status = 504;
         pe.retryable = true;
@@ -67,6 +73,7 @@ export class OpenAIProvider extends BaseProvider {
       }
       throw err;
     }
+    clearTimeout(connectTimer);
 
     if (!res.ok) {
       await this.handleError(res);

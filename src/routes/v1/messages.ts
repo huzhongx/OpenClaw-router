@@ -447,10 +447,10 @@ async function handleStreaming(
     clientDisconnected = true;
     clientAbort.abort();
   };
-  req.on('close', onClientClose);
+  res.on('close', onClientClose);
 
   const cleanup = () => {
-    req.off('close', onClientClose);
+    res.off('close', onClientClose);
     clearInterval(pingInterval);
   };
 
