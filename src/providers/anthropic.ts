@@ -86,16 +86,30 @@ export class AnthropicProvider extends BaseProvider {
     if (request.tool_choice) body.tool_choice = request.tool_choice;
     if (request.thinking) body.thinking = request.thinking;
 
-    // Use a much longer timeout for streaming (5 minutes) — the total
-    // response can take minutes for thinking models.  The signal from the
-    // caller (client disconnect) is still respected via mergeSignal.
-    const streamTimeout = Math.max(this.timeout * 10, 300_000);
-    const res = await fetch(`${this.baseUrl}/messages`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(body),
-      signal: signal ? this.mergeSignal(signal) : AbortSignal.timeout(streamTimeout),
-    });
+    // Connection timeout: 30s to establish connection and receive headers from upstream.
+    // fetch() returns when headers arrive, so this only covers the initial connection.
+    // After headers, stream reads are controlled by the client abort signal.
+    const CONNECT_TIMEOUT = 30_000;
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/messages`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(CONNECT_TIMEOUT)])
+          : AbortSignal.timeout(CONNECT_TIMEOUT),
+      });
+    } catch (err: any) {
+      if (err?.name === 'TimeoutError' || err?.message?.includes('Timeout')) {
+        const pe = new Error('Upstream connection timeout (30s)') as Error & ProviderError;
+        pe.status = 504;
+        pe.retryable = true;
+        pe.code = 'upstream_timeout';
+        throw pe;
+      }
+      throw err;
+    }
     if (!res.ok) {
       throw await this.handleError(res);
     }

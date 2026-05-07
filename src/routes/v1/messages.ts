@@ -73,6 +73,11 @@ type AnthropicRequest = z.infer<typeof messagesRequestSchema>;
 router.post('/messages', apiKeyAuth, rateLimit, async (req: Request, res: Response) => {
   const parsed = messagesRequestSchema.safeParse(req.body);
   if (!parsed.success) {
+    if (res.headersSent) {
+      res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: parsed.error.issues.map(i => i.message).join(', ') } })}\n\n`);
+      res.end();
+      return;
+    }
     res.status(400).json({
       type: 'error',
       error: {
@@ -416,12 +421,7 @@ async function handleStreaming(
   requestId: string,
   startTime: number,
 ): Promise<void> {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders();
-
+  // SSE headers already sent by app.ts middleware — just send message_start
   // Send message_start immediately so Claude Code knows the connection is alive
   res.write(`event: message_start\ndata: ${JSON.stringify({
     type: 'message_start',
@@ -437,7 +437,7 @@ async function handleStreaming(
     if (!res.writableEnded) {
       res.write(': ping\n\n');
     }
-  }, 15_000);
+  }, 5_000);
 
   const clientAbort = new AbortController();
   let clientDisconnected = false;
@@ -644,6 +644,10 @@ async function handleStreaming(
         if (pe.retryable && i < entries.length - 1) {
           res.write(`: Retrying with next provider...\n\n`);
           continue;
+        }
+        // Send timeout error to client immediately instead of hanging
+        if (pe.code === 'upstream_timeout') {
+          res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'Upstream provider connection timed out (30s)' } })}\n\n`);
         }
         break;
       }

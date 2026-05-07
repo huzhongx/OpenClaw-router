@@ -224,7 +224,7 @@ async function handleStreaming(
     if (!res.writableEnded) {
       res.write(': ping\n\n');
     }
-  }, 15_000);
+  }, 5_000);
 
   // AbortController for client disconnect (ESC / connection close)
   const clientAbort = new AbortController();
@@ -376,6 +376,10 @@ async function handleStreaming(
         if (pe.retryable && i < entries.length - 1) {
           res.write(`: Retrying with next provider...\n\n`);
           continue;
+        }
+        // Send timeout error to client immediately instead of hanging
+        if (pe.code === 'upstream_timeout') {
+          res.write(`data: ${JSON.stringify({ error: { message: 'Upstream provider connection timed out (30s)', type: 'upstream_error', code: 'upstream_timeout' } })}\n\n`);
         }
         break;
       }
