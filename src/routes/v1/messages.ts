@@ -493,8 +493,8 @@ async function handleStreaming(
           transform(chunk: any, _encoding, callback) {
             if (chunk.usage && isUsageValid(chunk.usage)) totalUsage = chunk.usage;
 
-            // Capture TTFT on first meaningful chunk (content, tool_calls, thinking — not just role)
-            if (ttftMs === null && chunk.choices?.[0]?.delta && !chunk.choices[0].delta.role) {
+            // Capture TTFT on first chunk with content (skip role-only chunks)
+            if (ttftMs === null && chunk.choices?.[0]?.delta?.content) {
               ttftMs = Date.now() - startTime;
             }
 
