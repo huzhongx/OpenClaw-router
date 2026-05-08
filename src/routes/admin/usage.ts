@@ -13,6 +13,7 @@ router.get('/', (req: Request, res: Response) => {
   const offset = (page - 1) * limit;
   const modelId = req.query.model_id as string;
   const userId = req.query.user_id as string;
+  const provider = req.query.provider as string;
   const status = req.query.status as string;
   const dateFrom = req.query.date_from as string;
   const dateTo = req.query.date_to as string;
@@ -22,6 +23,7 @@ router.get('/', (req: Request, res: Response) => {
 
   if (modelId) { conditions.push('ul.model_id = ?'); params.push(modelId); }
   if (userId) { conditions.push('ul.user_id = ?'); params.push(userId); }
+  if (provider) { conditions.push('ul.provider_name = ?'); params.push(provider); }
   if (status) { conditions.push('ul.status = ?'); params.push(status); }
   if (dateFrom) { conditions.push('ul.created_at >= ?'); params.push(dateFrom); }
   if (dateTo) { conditions.push('ul.created_at <= ?'); params.push(dateTo + ' 23:59:59'); }

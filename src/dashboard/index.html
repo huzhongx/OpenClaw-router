@@ -797,16 +797,20 @@ function scrollToChart(id) {
 }
 
 let dashboardRange = 'today';
+let dashboardProvider = '';
 
 async function renderDashboard() {
   const c = document.getElementById('mainContent');
   c.innerHTML = '<h1>Loading...</h1>';
 
-  const [stats, rawChartData] = await Promise.all([
-    cachedApi(`/admin/dashboard/stats?range=${dashboardRange}`),
+  const provParam = dashboardProvider ? `provider=${encodeURIComponent(dashboardProvider)}` : '';
+  const provSuffix = provParam ? `&${provParam}` : '';
+  const [provData, stats, rawChartData] = await Promise.all([
+    cachedApi('/admin/providers'),
+    cachedApi(`/admin/dashboard/stats?range=${dashboardRange}${provSuffix}`),
     dashboardRange === 'today'
-      ? cachedApi('/admin/dashboard/hourly-usage').then(r => r.hours)
-      : cachedApi(`/admin/dashboard/daily-usage?days=${dashboardRange === '7d' ? 7 : 30}`).then(r => r.days),
+      ? cachedApi(`/admin/dashboard/hourly-usage?${provParam}`).then(r => r.hours)
+      : cachedApi(`/admin/dashboard/daily-usage?days=${dashboardRange === '7d' ? 7 : 30}${provSuffix}`).then(r => r.days),
   ]);
 
   const rangeLabel = { today: 'Today', '7d': '7 Days', '30d': '30 Days' }[dashboardRange];
@@ -824,10 +828,14 @@ async function renderDashboard() {
       <div class="card glass" onclick="location.hash='#/usage'"><div class="label">Total Requests</div><div class="value blue">${fmtNum(stats.total_requests)}</div><div class="link-hint">Usage logs &rarr;</div></div>
       <div class="card glass" onclick="location.hash='#/billing'"><div class="label">Total Cost</div><div class="value yellow">$${stats.total_cost_usd}</div><div class="link-hint">Billing &rarr;</div></div>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:20px;">
+    <div style="display:flex;gap:8px;margin-bottom:20px;align-items:center;flex-wrap:wrap;">
       <button class="range-btn ${dashboardRange === 'today' ? 'active' : ''}" onclick="dashboardRange='today';renderDashboard()">Today</button>
       <button class="range-btn ${dashboardRange === '7d' ? 'active' : ''}" onclick="dashboardRange='7d';renderDashboard()">7 Days</button>
       <button class="range-btn ${dashboardRange === '30d' ? 'active' : ''}" onclick="dashboardRange='30d';renderDashboard()">30 Days</button>
+      <select style="margin-left:8px;min-width:180px;padding:6px 14px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:20px;color:var(--text-primary);font-size:13px;font-family:inherit;cursor:pointer;transition:all 0.2s;backdrop-filter:blur(10px)" onchange="dashboardProvider=this.value;renderDashboard()">
+        <option value="">All Providers</option>
+        ${(provData.providers || []).map(p => `<option value="${esc(p.name)}" ${dashboardProvider === p.name ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+      </select>
     </div>
     <div class="charts-grid">
       <div class="chart-card glass-static">
@@ -1471,10 +1479,12 @@ function stopUsageAutoRefresh() {
 function _usageBuildParams(page) {
   const params = new URLSearchParams();
   const filterUser = window._usageFilterUser || '';
+  const filterProvider = window._usageFilterProvider || '';
   const filterStatus = window._usageFilterStatus || '';
   const filterDateFrom = window._usageFilterDateFrom || '';
   const filterDateTo = window._usageFilterDateTo || '';
   if (filterUser) params.set('user_id', filterUser);
+  if (filterProvider) params.set('provider', filterProvider);
   if (filterStatus) params.set('status', filterStatus);
   if (filterDateFrom) params.set('date_from', filterDateFrom);
   if (filterDateTo) params.set('date_to', filterDateTo);
@@ -1551,10 +1561,11 @@ async function renderUsage(page = 1) {
   const c = document.getElementById('mainContent');
   c.innerHTML = '<h1>Loading...</h1>';
   try {
-  const users = await fetchUsers();
+  const [users, provData] = await Promise.all([fetchUsers(), cachedApi('/admin/providers')]);
   const data = await api(`/admin/usage?${_usageBuildParams(page)}`);
   const totalPages = Math.ceil(data.total / data.limit);
   const filterUser = window._usageFilterUser || '';
+  const filterProvider = window._usageFilterProvider || '';
   const filterStatus = window._usageFilterStatus || '';
   const filterDateFrom = window._usageFilterDateFrom || '';
   const filterDateTo = window._usageFilterDateTo || '';
@@ -1568,6 +1579,10 @@ async function renderUsage(page = 1) {
       <select id="filterUser" style="min-width:160px" onchange="window._usageFilterUser=this.value;renderUsage(1)">
         <option value="">All Users</option>
         ${users.map(u => `<option value="${u.id}" ${u.id === filterUser ? 'selected' : ''}>${esc(u.name || u.email || u.id?.slice(0, 8))}</option>`).join('')}
+      </select>
+      <select id="filterProvider" style="min-width:160px" onchange="window._usageFilterProvider=this.value;renderUsage(1)">
+        <option value="">All Providers</option>
+        ${(provData.providers || []).map(p => `<option value="${esc(p.name)}" ${filterProvider === p.name ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
       </select>
       <select id="filterStatus" style="min-width:120px" onchange="window._usageFilterStatus=this.value;renderUsage(1)">
         <option value="">All Status</option>

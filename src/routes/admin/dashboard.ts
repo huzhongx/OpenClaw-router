@@ -5,15 +5,21 @@ import { adminAuth } from '../../middleware/admin-auth';
 const router = Router();
 router.use(adminAuth);
 
-// GET /admin/dashboard/stats?range=today|7d|30d
+function provFilter(providerName: string) {
+  if (!providerName) return '';
+  return ` AND provider_name = '${providerName.replace(/'/g, "''")}'`;
+}
+
+// GET /admin/dashboard/stats?range=today|7d|30d&provider=xxx
 router.get('/stats', (_req: any, res: Response) => {
   const db = getDb();
   const range = _req.query.range as string || 'today';
+  const pf = provFilter(_req.query.provider as string || '');
 
   const totalUsers = (db.prepare('SELECT COUNT(*) as c FROM users').get() as any).c;
   const activeKeys = (db.prepare("SELECT COUNT(*) as c FROM api_keys WHERE is_active = 1").get() as any).c;
-  const totalRequests = (db.prepare("SELECT COUNT(*) as c FROM usage_logs WHERE status = 'success'").get() as any).c;
-  const totalCostCents = (db.prepare("SELECT COALESCE(SUM(cost_cents), 0) as c FROM usage_logs WHERE status = 'success'").get() as any).c;
+  const totalRequests = (db.prepare(`SELECT COUNT(*) as c FROM usage_logs WHERE status = 'success'${pf}`).get() as any).c;
+  const totalCostCents = (db.prepare(`SELECT COALESCE(SUM(cost_cents), 0) as c FROM usage_logs WHERE status = 'success'${pf}`).get() as any).c;
 
   let whereClause: string;
   if (range === '7d') {
@@ -24,9 +30,10 @@ router.get('/stats', (_req: any, res: Response) => {
     whereClause = "date(created_at) = date('now')";
   }
 
-  const rangeRequests = (db.prepare(`SELECT COUNT(*) as c FROM usage_logs WHERE status = 'success' AND ${whereClause}`).get() as any).c;
-  const rangeCostCents = (db.prepare(`SELECT COALESCE(SUM(cost_cents), 0) as c FROM usage_logs WHERE status = 'success' AND ${whereClause}`).get() as any).c;
-  const rangeTokens = (db.prepare(`SELECT COALESCE(SUM(total_tokens), 0) as c FROM usage_logs WHERE status = 'success' AND ${whereClause}`).get() as any).c;
+  const rangeWhere = `status = 'success' AND ${whereClause}${pf}`;
+  const rangeRequests = (db.prepare(`SELECT COUNT(*) as c FROM usage_logs WHERE ${rangeWhere}`).get() as any).c;
+  const rangeCostCents = (db.prepare(`SELECT COALESCE(SUM(cost_cents), 0) as c FROM usage_logs WHERE ${rangeWhere}`).get() as any).c;
+  const rangeTokens = (db.prepare(`SELECT COALESCE(SUM(total_tokens), 0) as c FROM usage_logs WHERE ${rangeWhere}`).get() as any).c;
 
   res.json({
     total_users: totalUsers,
@@ -41,10 +48,11 @@ router.get('/stats', (_req: any, res: Response) => {
   });
 });
 
-// GET /admin/dashboard/daily-usage?days=30
+// GET /admin/dashboard/daily-usage?days=30&provider=xxx
 router.get('/daily-usage', (_req: any, res: Response) => {
   const db = getDb();
   const days = parseInt(_req.query.days as string) || 30;
+  const pf = provFilter(_req.query.provider as string || '');
 
   const rows = db.prepare(`
     SELECT date(created_at) as date,
@@ -53,7 +61,7 @@ router.get('/daily-usage', (_req: any, res: Response) => {
            SUM(cost_cents) as cost_cents,
            SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
     FROM usage_logs
-    WHERE created_at >= datetime('now', '-${days} days')
+    WHERE created_at >= datetime('now', '-${days} days')${pf}
     GROUP BY date(created_at)
     ORDER BY date(created_at)
   `).all() as any[];
@@ -61,9 +69,10 @@ router.get('/daily-usage', (_req: any, res: Response) => {
   res.json({ days: rows });
 });
 
-// GET /admin/dashboard/hourly-usage
+// GET /admin/dashboard/hourly-usage?provider=xxx
 router.get('/hourly-usage', (_req: any, res: Response) => {
   const db = getDb();
+  const pf = provFilter(_req.query.provider as string || '');
 
   const rows = db.prepare(`
     SELECT strftime('%Y-%m-%d %H:00', created_at) as hour,
@@ -72,7 +81,7 @@ router.get('/hourly-usage', (_req: any, res: Response) => {
            SUM(cost_cents) as cost_cents,
            SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
     FROM usage_logs
-    WHERE date(created_at) = date('now')
+    WHERE date(created_at) = date('now')${pf}
     GROUP BY strftime('%Y-%m-%d %H', created_at)
     ORDER BY hour
   `).all() as any[];
