@@ -18,7 +18,7 @@ router.get('/', (_req: Request, res: Response) => {
 // POST /admin/models
 router.post('/', (req: Request, res: Response) => {
   const db = getDb();
-  const { model_id, display_name, provider_id, provider_model_id, input_price_per_1k, output_price_per_1k, max_tokens } = req.body;
+  const { model_id, display_name, provider_id, provider_model_id, input_price_per_1k, output_price_per_1k, max_tokens, supports_tools, supports_vision, supports_json_mode } = req.body;
   if (!model_id || !provider_id || !provider_model_id) {
     res.status(400).json({ error: { message: 'model_id, provider_id, and provider_model_id are required' } });
     return;
@@ -28,8 +28,8 @@ router.post('/', (req: Request, res: Response) => {
   const id = uuidv4();
   try {
     db.prepare(
-      'INSERT INTO models (id, model_id, display_name, provider_id, provider_model_id, input_price_per_1k, output_price_per_1k, max_tokens, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)'
-    ).run(id, model_id, display_name || model_id, provider_id, provider_model_id, input_price_per_1k || 0, output_price_per_1k || 0, max_tokens || null, now, now);
+      'INSERT INTO models (id, model_id, display_name, provider_id, provider_model_id, input_price_per_1k, output_price_per_1k, max_tokens, supports_tools, supports_vision, supports_json_mode, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)'
+    ).run(id, model_id, display_name || model_id, provider_id, provider_model_id, input_price_per_1k || 0, output_price_per_1k || 0, max_tokens || null, supports_tools ? 1 : 0, supports_vision ? 1 : 0, supports_json_mode ? 1 : 0, now, now);
   } catch (err: any) {
     if (err.message?.includes('UNIQUE')) {
       res.status(409).json({ error: { message: 'Model ID already exists' } });
@@ -44,7 +44,7 @@ router.post('/', (req: Request, res: Response) => {
 // PUT /admin/models/:id
 router.put('/:id', (req: Request, res: Response) => {
   const db = getDb();
-  const { display_name, provider_id, provider_model_id, input_price_per_1k, output_price_per_1k, max_tokens, is_active } = req.body;
+  const { display_name, provider_id, provider_model_id, input_price_per_1k, output_price_per_1k, max_tokens, is_active, supports_tools, supports_vision, supports_json_mode } = req.body;
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
   db.prepare(
@@ -52,12 +52,18 @@ router.put('/:id', (req: Request, res: Response) => {
       display_name = COALESCE(?, display_name), provider_id = COALESCE(?, provider_id),
       provider_model_id = COALESCE(?, provider_model_id),
       input_price_per_1k = COALESCE(?, input_price_per_1k), output_price_per_1k = COALESCE(?, output_price_per_1k),
-      max_tokens = ?, is_active = COALESCE(?, is_active), updated_at = ?
+      max_tokens = ?, supports_tools = COALESCE(?, supports_tools),
+      supports_vision = COALESCE(?, supports_vision), supports_json_mode = COALESCE(?, supports_json_mode),
+      is_active = COALESCE(?, is_active), updated_at = ?
     WHERE id = ?`
   ).run(
     display_name || null, provider_id || null, provider_model_id || null,
     input_price_per_1k ?? null, output_price_per_1k ?? null,
-    max_tokens !== undefined ? max_tokens : null, is_active !== undefined ? (is_active ? 1 : 0) : null,
+    max_tokens !== undefined ? max_tokens : null,
+    supports_tools !== undefined ? (supports_tools ? 1 : 0) : null,
+    supports_vision !== undefined ? (supports_vision ? 1 : 0) : null,
+    supports_json_mode !== undefined ? (supports_json_mode ? 1 : 0) : null,
+    is_active !== undefined ? (is_active ? 1 : 0) : null,
     now, req.params.id
   );
 

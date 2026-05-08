@@ -3,6 +3,7 @@ import { getDb } from '../db/connection';
 import { config } from '../config';
 import { createProvider } from './registry';
 import { BaseProvider } from './base';
+import { getDefaultStrategy, isAutoRoutingEnabled } from '../services/auto-routing';
 
 function rowToProviderConfig(row: ProviderRow): ProviderConfig {
   let apiKey = row.api_key || '';
@@ -36,7 +37,42 @@ function rowToProviderConfig(row: ProviderRow): ProviderConfig {
   };
 }
 
+export class AutoRouteRequiredError extends Error {
+  public readonly strategy: string;
+  constructor(strategy: string) {
+    super('Auto-routing requires request body');
+    this.name = 'AutoRouteRequiredError';
+    this.strategy = strategy;
+  }
+}
+
 export function resolveRoute(modelId: string): ResolvedRouteEntry[] {
+  if (modelId === 'auto') {
+    if (!isAutoRoutingEnabled()) throw new Error('Auto-routing is not enabled');
+    throw new AutoRouteRequiredError(getDefaultStrategy());
+  }
+  return resolveRouteInternal(modelId);
+}
+
+export function resolveRouteWithFallbacks(modelIds: string[]): ResolvedRouteEntry[] {
+  const allEntries: ResolvedRouteEntry[] = [];
+  const seen = new Set<string>();
+  for (const mid of modelIds) {
+    try {
+      for (const entry of resolveRouteInternal(mid)) {
+        const key = `${entry.providerConfig.id}:${entry.providerModelId}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          allEntries.push(entry);
+        }
+      }
+    } catch { /* skip unresolvable models */ }
+  }
+  if (allEntries.length === 0) throw new Error('No models available for auto-routing');
+  return allEntries;
+}
+
+function resolveRouteInternal(modelId: string): ResolvedRouteEntry[] {
   const db = getDb();
 
   // First check routes table for this model
@@ -62,6 +98,9 @@ export function resolveRoute(modelId: string): ResolvedRouteEntry[] {
           input_price_per_1k: 0,
           output_price_per_1k: 0,
           max_tokens: null,
+          supports_tools: 0,
+          supports_vision: 0,
+          supports_json_mode: 0,
           is_active: 1,
           created_at: '',
           updated_at: '',

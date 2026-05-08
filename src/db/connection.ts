@@ -29,6 +29,17 @@ export function getDb(): Database.Database {
     // Migration: add ttft_ms column if missing
     try { db.exec('ALTER TABLE usage_logs ADD COLUMN ttft_ms INTEGER'); } catch { /* column already exists */ }
 
+    // Migration: add capability flags to models table
+    try { db.exec('ALTER TABLE models ADD COLUMN supports_tools INTEGER NOT NULL DEFAULT 0'); } catch { /* already exists */ }
+    try { db.exec('ALTER TABLE models ADD COLUMN supports_vision INTEGER NOT NULL DEFAULT 0'); } catch { /* already exists */ }
+    try { db.exec('ALTER TABLE models ADD COLUMN supports_json_mode INTEGER NOT NULL DEFAULT 0'); } catch { /* already exists */ }
+
+    // Seed routing config defaults
+    const hasStrategy = db.prepare("SELECT 1 FROM routing_config WHERE key = 'default_strategy'").get();
+    if (!hasStrategy) db.prepare("INSERT INTO routing_config (key, value) VALUES ('default_strategy', 'priority')").run();
+    const hasAutoEnabled = db.prepare("SELECT 1 FROM routing_config WHERE key = 'auto_enabled'").get();
+    if (!hasAutoEnabled) db.prepare("INSERT INTO routing_config (key, value) VALUES ('auto_enabled', '1')").run();
+
     logger.info({ dbPath }, 'Database initialized');
   }
   return db;

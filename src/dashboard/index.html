@@ -610,6 +610,7 @@
       <a href="#/providers" data-nav><i data-lucide="plug"></i><span>Providers</span></a>
       <a href="#/models" data-nav><i data-lucide="boxes"></i><span>Models</span></a>
       <a href="#/routes" data-nav><i data-lucide="git-branch"></i><span>Routes</span></a>
+      <a href="#/quality" data-nav><i data-lucide="star"></i><span>Quality</span></a>
       <a href="#/usage" data-nav><i data-lucide="bar-chart-3"></i><span>Usage Logs</span></a>
       <a href="#/billing" data-nav><i data-lucide="receipt"></i><span>Billing</span></a>
     </nav>
@@ -734,6 +735,7 @@ function handleRoute() {
     '#/providers': renderProviders,
     '#/models': renderModels,
     '#/routes': renderRoutes,
+    '#/quality': renderQuality,
     '#/usage': renderUsage,
     '#/billing': renderBilling,
   };
@@ -1280,21 +1282,39 @@ async function deleteProvider(id) {
 async function renderModels() {
   const c = document.getElementById('mainContent');
   c.innerHTML = '<h1>Loading...</h1>';
-  const data = await api('/admin/models');
+  const [data, provData] = await Promise.all([api('/admin/models'), api('/admin/providers')]);
+
+  const filterProvider = window._modelsFilterProvider || '';
+  const allModels = data.models || [];
+  const providers = provData.providers || [];
+
+  const providerNames = [...new Set(allModels.map(m => m.provider_name).filter(Boolean))].sort();
+  const filtered = filterProvider ? allModels.filter(m => m.provider_name === filterProvider) : allModels;
 
   c.innerHTML = `
-    <div class="header"><h1>Models</h1><button class="btn primary" onclick="showCreateModelModal()"><i data-lucide="plus" style="width:16px;height:16px"></i> Add Model</button></div>
-    <div class="table-wrap glass-static" style="padding:4px">
+    <div class="header"><h1>Models (${filtered.length}/${allModels.length})</h1><button class="btn primary" onclick="showCreateModelModal()"><i data-lucide="plus" style="width:16px;height:16px"></i> Add Model</button></div>
+    <div class="toolbar">
+      <select style="min-width:180px" onchange="window._modelsFilterProvider=this.value;renderModels()">
+        <option value="">All Providers</option>
+        ${providerNames.map(n => `<option value="${esc(n)}" ${filterProvider === n ? 'selected' : ''}>${esc(n)} (${allModels.filter(m=>m.provider_name===n).length})</option>`).join('')}
+      </select>
+    </div>
+    <div class="table-wrap glass-static" style="padding:4px;max-height:70vh;overflow:auto">
     <table>
-      <tr><th>Model ID</th><th>Display Name</th><th>Provider</th><th>Provider Model</th><th>Input $/1K</th><th>Output $/1K</th><th>Status</th><th>Actions</th></tr>
-      ${data.models.map(m => `
+      <tr><th>Model ID</th><th>Display Name</th><th>Provider</th><th>Provider Model</th><th>Input $/1K</th><th>Output $/1K</th><th>Capabilities</th><th>Status</th><th>Actions</th></tr>
+      ${filtered.slice(0, 500).map(m => `
         <tr>
           <td><code>${esc(m.model_id)}</code></td>
           <td style="color:var(--text-primary);font-weight:500">${esc(m.display_name)}</td>
           <td>${esc(m.provider_name)}</td>
           <td style="max-width:150px;overflow:hidden;color:var(--text-muted);font-size:12px">${esc(m.provider_model_id)}</td>
-          <td>${m.input_price_per_1k}</td>
-          <td>${m.output_price_per_1k}</td>
+          <td>${m.input_price_per_1k ?? '-'}</td>
+          <td>${m.output_price_per_1k ?? '-'}</td>
+          <td style="font-size:12px;white-space:nowrap">
+            ${m.supports_tools ? '<span style="color:var(--accent-green)">T</span> ' : ''}
+            ${m.supports_vision ? '<span style="color:var(--accent-blue)">V</span> ' : ''}
+            ${m.supports_json_mode ? '<span style="color:var(--accent-purple)">J</span> ' : ''}
+          </td>
           <td>${statusBadge(m.is_active)}</td>
           <td>
             <button class="btn sm" onclick="showEditModelModal(${JSON.stringify(m).replace(/"/g, '&quot;')})">Edit</button>
@@ -1302,6 +1322,7 @@ async function renderModels() {
           </td>
         </tr>
       `).join('')}
+      ${filtered.length > 500 ? `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:12px">Showing 500 of ${filtered.length} models. Use provider filter to narrow results.</td></tr>` : ''}
     </table>
     </div>
   `;
@@ -1318,6 +1339,11 @@ async function showCreateModelModal() {
     <div class="field"><label>Provider Model ID</label><input id="mModelProviderId"></div>
     <div class="field"><label>Input Price / 1K tokens ($)</label><input id="mModelInputPrice" type="number" step="0.0001" value="0"></div>
     <div class="field"><label>Output Price / 1K tokens ($)</label><input id="mModelOutputPrice" type="number" step="0.0001" value="0"></div>
+    <div class="field" style="display:flex;gap:16px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="mModelTools" style="width:16px;height:16px"> Supports Tools</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="mModelVision" style="width:16px;height:16px"> Supports Vision</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="mModelJson" style="width:16px;height:16px"> Supports JSON Mode</label>
+    </div>
     <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="createModel()">Add</button></div>
   `);
 }
@@ -1330,6 +1356,9 @@ async function createModel() {
     provider_model_id: document.getElementById('mModelProviderId').value,
     input_price_per_1k: parseFloat(document.getElementById('mModelInputPrice').value),
     output_price_per_1k: parseFloat(document.getElementById('mModelOutputPrice').value),
+    supports_tools: document.getElementById('mModelTools').checked,
+    supports_vision: document.getElementById('mModelVision').checked,
+    supports_json_mode: document.getElementById('mModelJson').checked,
   };
   await api('/admin/models', { method: 'POST', body: JSON.stringify(body) });
   closeModal(); renderModels();
@@ -1341,6 +1370,11 @@ function showEditModelModal(m) {
     <div class="field"><label>Display Name</label><input id="mModelName" value="${esc(m.display_name)}"></div>
     <div class="field"><label>Input Price / 1K tokens ($)</label><input id="mModelInputPrice" type="number" step="0.0001" value="${m.input_price_per_1k}"></div>
     <div class="field"><label>Output Price / 1K tokens ($)</label><input id="mModelOutputPrice" type="number" step="0.0001" value="${m.output_price_per_1k}"></div>
+    <div class="field" style="display:flex;gap:16px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="mModelTools" ${m.supports_tools ? 'checked' : ''} style="width:16px;height:16px"> Supports Tools</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="mModelVision" ${m.supports_vision ? 'checked' : ''} style="width:16px;height:16px"> Supports Vision</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="mModelJson" ${m.supports_json_mode ? 'checked' : ''} style="width:16px;height:16px"> Supports JSON Mode</label>
+    </div>
     <div class="field"><label>Active</label><select id="mModelActive"><option value="1" ${m.is_active ? 'selected' : ''}>Yes</option><option value="0" ${!m.is_active ? 'selected' : ''}>No</option></select></div>
     <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="updateModel('${m.id}')">Save</button></div>
   `);
@@ -1351,6 +1385,9 @@ async function updateModel(id) {
     display_name: document.getElementById('mModelName').value,
     input_price_per_1k: parseFloat(document.getElementById('mModelInputPrice').value),
     output_price_per_1k: parseFloat(document.getElementById('mModelOutputPrice').value),
+    supports_tools: document.getElementById('mModelTools').checked,
+    supports_vision: document.getElementById('mModelVision').checked,
+    supports_json_mode: document.getElementById('mModelJson').checked,
     is_active: document.getElementById('mModelActive').value === '1',
   };
   await api(`/admin/models/${id}`, { method: 'PUT', body: JSON.stringify(body) });
@@ -1443,6 +1480,150 @@ async function deleteRoute(id) {
   if (!confirm('Delete this route?')) return;
   await api(`/admin/routes/${id}`, { method: 'DELETE' });
   renderRoutes();
+}
+
+// ==================== Quality & Routing ====================
+async function renderQuality() {
+  const c = document.getElementById('mainContent');
+  c.innerHTML = '<h1>Loading...</h1>';
+  const [scoresData, configData] = await Promise.all([
+    api('/admin/quality/scores'),
+    api('/admin/routing/config'),
+  ]);
+
+  const scoreColor = (s) => s >= 80 ? 'var(--accent-green)' : s >= 60 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+
+  c.innerHTML = `
+    <div class="header"><h1>Quality & Routing</h1></div>
+
+    <div class="card glass-static" style="padding:24px;margin-bottom:24px">
+      <h3 style="margin-bottom:16px;font-weight:600">Routing Configuration</h3>
+      <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px">
+          <input type="checkbox" id="autoEnabled" ${configData.auto_enabled ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
+          Enable <code>model="auto"</code> intelligent routing
+        </label>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px">Default Strategy</label>
+          <select id="defaultStrategy" style="padding:8px 14px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:13px;min-width:140px;cursor:pointer">
+            ${configData.available_strategies.map(s => `<option value="${s}" ${s === configData.default_strategy ? 'selected' : ''}>${s}</option>`).join('')}
+          </select>
+        </div>
+        <button class="btn primary" onclick="saveRoutingConfig()">Save</button>
+      </div>
+    </div>
+
+    <div class="card glass-static" style="padding:24px;margin-bottom:24px">
+      <h3 style="margin-bottom:16px;font-weight:600">Auto-Routing Preview</h3>
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="previewTools" style="width:16px;height:16px;cursor:pointer"> Tools
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="previewVision" style="width:16px;height:16px;cursor:pointer"> Vision
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="previewJson" style="width:16px;height:16px;cursor:pointer"> JSON Mode
+        </label>
+        <button class="btn" onclick="runAutoPreview()">Preview</button>
+      </div>
+      <div id="previewResult"></div>
+    </div>
+
+    <h3 style="margin-bottom:12px;font-weight:600">Quality Scores</h3>
+    <div class="table-wrap glass-static" style="padding:4px">
+      <table>
+        <tr><th>Model</th><th>Static</th><th>Override</th><th>Effective</th><th>Actions</th></tr>
+        ${scoresData.scores.map(s => `
+          <tr>
+            <td><code style="font-size:12px">${esc(s.model_id)}</code></td>
+            <td>${s.static_score}</td>
+            <td>${s.override_score !== null ? s.override_score : '<span style="color:var(--text-muted)">-</span>'}</td>
+            <td style="font-weight:600;color:${scoreColor(s.effective_score)}">${s.effective_score}</td>
+            <td style="white-space:nowrap">
+              <button class="btn sm" onclick="showOverrideModal('${esc(s.model_id)}', ${s.override_score ?? 'null'})">Override</button>
+              ${s.override_score !== null ? `<button class="btn sm" style="color:var(--accent-red)" onclick="deleteOverride('${esc(s.model_id)}')">Delete</button>` : ''}
+            </td>
+          </tr>
+        `).join('')}
+      </table>
+    </div>
+  `;
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+async function saveRoutingConfig() {
+  const autoEnabled = document.getElementById('autoEnabled').checked;
+  const defaultStrategy = document.getElementById('defaultStrategy').value;
+  await api('/admin/routing/config', { method: 'PUT', body: JSON.stringify({ auto_enabled: autoEnabled, default_strategy: defaultStrategy }) });
+  alert('Routing config saved');
+}
+
+async function runAutoPreview() {
+  const el = document.getElementById('previewResult');
+  el.innerHTML = 'Loading...';
+  const tools = document.getElementById('previewTools').checked ? '1' : '0';
+  const vision = document.getElementById('previewVision').checked ? '1' : '0';
+  const jsonMode = document.getElementById('previewJson').checked ? '1' : '0';
+  const data = await api(`/admin/routing/auto-preview?tools=${tools}&vision=${vision}&json_mode=${jsonMode}`);
+  if (!data.selected) { el.innerHTML = '<div class="empty">No matching models</div>'; return; }
+  const caps = [];
+  if (data.capabilities.requiresTools) caps.push('tools');
+  if (data.capabilities.requiresVision) caps.push('vision');
+  if (data.capabilities.requiresJsonMode) caps.push('json_mode');
+  el.innerHTML = `
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">
+      Strategy: <strong>${data.strategy}</strong> &nbsp;|&nbsp; Capabilities: ${caps.length ? caps.join(', ') : 'none'} &nbsp;|&nbsp; ${data.matching_models}/${data.total_active_models} models match
+    </div>
+    <div class="table-wrap" style="padding:2px">
+      <table style="font-size:13px">
+        <tr><th>#</th><th>Model</th><th>Provider</th><th>Quality</th><th>Cost/1K</th><th>Latency P50</th></tr>
+        ${data.candidates.map((m, i) => `
+          <tr style="${i === 0 ? 'background:rgba(0,212,255,0.06)' : ''}">
+            <td>${i === 0 ? '<span style="color:var(--accent-blue);font-weight:700">1st</span>' : i + 1}</td>
+            <td><code>${esc(m.modelId)}</code></td>
+            <td>${esc(m.providerName)}</td>
+            <td style="font-weight:600">${m.qualityScore}</td>
+            <td>$${m.blendedCost.toFixed(4)}</td>
+            <td>${m.latencyP50 !== null ? m.latencyP50 + 'ms' : '-'}</td>
+          </tr>
+        `).join('')}
+      </table>
+    </div>
+  `;
+}
+
+function showOverrideModal(modelId, currentOverride) {
+  openModal(`
+    <h2>Override Score: <code>${esc(modelId)}</code></h2>
+    <div style="margin-top:16px">
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px">Quality Score (0-100)</label>
+      <input type="number" id="overrideScore" min="0" max="100" value="${currentOverride ?? 50}" style="width:100%;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:14px">
+    </div>
+    <div style="margin-top:12px">
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px">Notes (optional)</label>
+      <input type="text" id="overrideNotes" placeholder="e.g. Internal benchmark result" style="width:100%;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:14px">
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="saveOverride('${esc(modelId)}')">Save</button>
+    </div>
+  `);
+}
+
+async function saveOverride(modelId) {
+  const score = parseInt(document.getElementById('overrideScore').value);
+  const notes = document.getElementById('overrideNotes').value || undefined;
+  if (isNaN(score) || score < 0 || score > 100) { alert('Score must be 0-100'); return; }
+  await api(`/admin/quality/overrides/${modelId}`, { method: 'PUT', body: JSON.stringify({ quality_score: score, notes }) });
+  closeModal();
+  renderQuality();
+}
+
+async function deleteOverride(modelId) {
+  if (!confirm(`Remove override for ${modelId}?`)) return;
+  await api(`/admin/quality/overrides/${modelId}`, { method: 'DELETE' });
+  renderQuality();
 }
 
 // ==================== Usage Logs ====================

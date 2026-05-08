@@ -62,6 +62,9 @@ CREATE TABLE IF NOT EXISTS models (
   input_price_per_1k  REAL NOT NULL DEFAULT 0,
   output_price_per_1k REAL NOT NULL DEFAULT 0,
   max_tokens          INTEGER,
+  supports_tools      INTEGER NOT NULL DEFAULT 0,
+  supports_vision     INTEGER NOT NULL DEFAULT 0,
+  supports_json_mode  INTEGER NOT NULL DEFAULT 0,
   is_active           INTEGER NOT NULL DEFAULT 1,
   created_at          TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
@@ -132,6 +135,21 @@ CREATE INDEX IF NOT EXISTS idx_balance_txns_user_id ON balance_transactions(user
 CREATE INDEX IF NOT EXISTS idx_balance_txns_type ON balance_transactions(type);
 
 CREATE TABLE IF NOT EXISTS system_config (
+  key       TEXT PRIMARY KEY,
+  value     TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS quality_score_overrides (
+  id            TEXT PRIMARY KEY,
+  model_id      TEXT NOT NULL UNIQUE,
+  quality_score REAL NOT NULL,
+  notes         TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS routing_config (
   key       TEXT PRIMARY KEY,
   value     TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))

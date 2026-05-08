@@ -18,6 +18,9 @@ import adminRoutesRouter from './routes/admin/routes';
 import adminDashboardRouter from './routes/admin/dashboard';
 import adminUsageRouter from './routes/admin/usage';
 import adminBillingRouter from './routes/admin/billing';
+import adminQualityRouter from './routes/admin/quality';
+import adminRoutingConfigRouter from './routes/admin/routing-config';
+import adminImportRouter from './routes/admin/import';
 import dashboardRouter from './dashboard/dashboard';
 import userBalanceRouter from './routes/user/balance';
 import userUsageRouter from './routes/user/usage';
@@ -77,6 +80,9 @@ export function createApp(): express.Application {
   app.use('/admin/dashboard', adminDashboardRouter);
   app.use('/admin/usage', adminUsageRouter);
   app.use('/admin/billing', adminBillingRouter);
+  app.use('/admin/quality', adminQualityRouter);
+  app.use('/admin/routing', adminRoutingConfigRouter);
+  app.use('/admin/import', adminImportRouter);
 
   // User routes (require API key)
   app.use('/user', userBalanceRouter, userUsageRouter, userKeysRouter);

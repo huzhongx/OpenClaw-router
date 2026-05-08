@@ -60,6 +60,9 @@ export interface ModelRow {
   input_price_per_1k: number;
   output_price_per_1k: number;
   max_tokens: number | null;
+  supports_tools: number;
+  supports_vision: number;
+  supports_json_mode: number;
   is_active: number;
   created_at: string;
   updated_at: string;
@@ -231,6 +234,32 @@ export interface ResolvedRouteEntry {
   model: ModelRow;
   provider: ProviderRow;
   priority: number;
+}
+
+// --- Quality & Auto-Routing types ---
+
+export type RoutingStrategy = 'priority' | 'cheapest' | 'quality' | 'balanced' | 'fastest';
+
+export interface DetectedCapabilities {
+  requiresTools: boolean;
+  requiresVision: boolean;
+  requiresJsonMode: boolean;
+}
+
+export interface ScoredModel {
+  modelId: string;
+  displayName: string;
+  providerId: string;
+  providerName: string;
+  providerModelId: string;
+  inputPricePer1k: number;
+  outputPricePer1k: number;
+  blendedCost: number;
+  qualityScore: number;
+  latencyP50: number | null;
+  supportsTools: boolean;
+  supportsVision: boolean;
+  supportsJsonMode: boolean;
 }
 
 // --- Express request augmentation ---

@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { resolveRoute, resolveModel, listActiveModels } from '../../providers/router';
+import { resolveRoute, resolveModel, listActiveModels, AutoRouteRequiredError, resolveRouteWithFallbacks } from '../../providers/router';
+import { autoRoute } from '../../services/auto-routing';
+import type { RoutingStrategy } from '../../types';
 import { createProvider } from '../../providers/registry';
 import { deductUsage, calculateCost, toCents } from '../../services/billing';
 import { normalizeUsage, emptyUsage, isUsageValid } from '../../services/token-counter';
@@ -54,8 +56,27 @@ router.post('/chat/completions', apiKeyAuth, rateLimit, async (req: Request, res
   const startTime = Date.now();
   const requestId = `ocr-${uuidv4().slice(0, 8)}`;
 
+  let effectiveModelId = body.model;
+
   try {
-    const entries = resolveRoute(body.model);
+    let entries;
+    (body as any)._effectiveModelId = effectiveModelId;
+    try {
+      entries = resolveRoute(body.model);
+    } catch (err: any) {
+      if (err instanceof AutoRouteRequiredError) {
+        const strategy = err.strategy as RoutingStrategy;
+        const result = autoRoute(body, strategy);
+        if (!result.selectedModelId) {
+          res.status(422).json({ error: { message: 'No models available for auto-routing', type: 'invalid_request_error' } });
+          return;
+        }
+        (body as any)._effectiveModelId = effectiveModelId;
+        entries = resolveRouteWithFallbacks([result.selectedModelId, ...result.fallbackModelIds]);
+      } else {
+        throw err;
+      }
+    }
 
     if (body.stream) {
       return await handleStreaming(req, res, body, entries, requestId, startTime);
@@ -69,10 +90,10 @@ router.post('/chat/completions', apiKeyAuth, rateLimit, async (req: Request, res
     logUsage({
       userId: req.userId!,
       apiKeyId: req.apiKeyId || null,
-      modelId: body.model,
+      modelId: effectiveModelId,
       providerId: '',
       providerName: '',
-      providerModelId: body.model,
+      providerModelId: effectiveModelId,
       requestId,
       inputTokens: 0,
       outputTokens: 0,
@@ -100,7 +121,7 @@ router.post('/chat/completions', apiKeyAuth, rateLimit, async (req: Request, res
 
     res.status(404).json({
       error: {
-        message: err.message || `Model not found: ${body.model}`,
+        message: err.message || `Model not found: ${effectiveModelId}`,
         type: 'invalid_request_error',
         param: null,
         code: 'model_not_found',
@@ -118,6 +139,7 @@ async function handleNonStreaming(
   startTime: number,
 ): Promise<void> {
   const errors: ProviderError[] = [];
+  const eid = (body as any)._effectiveModelId || body.model;
 
   for (const entry of entries) {
     const provider = createProvider(entry.providerConfig);
@@ -139,7 +161,7 @@ async function handleNonStreaming(
       const latencyMs = Date.now() - startTime;
 
       // Look up model for pricing
-      const model = resolveModel(body.model);
+      const model = resolveModel(eid);
       const costCents = model ? toCents(calculateCost(usage, model)) : 0;
 
       // Billing
@@ -151,7 +173,7 @@ async function handleNonStreaming(
       logUsage({
         userId: req.userId!,
         apiKeyId: req.apiKeyId || null,
-        modelId: body.model,
+        modelId: eid,
         providerId: entry.providerConfig.id,
         providerName: entry.providerConfig.name,
         providerModelId: entry.providerModelId,
@@ -213,6 +235,7 @@ async function handleStreaming(
   requestId: string,
   startTime: number,
 ): Promise<void> {
+  const eid = (body as any)._effectiveModelId || body.model;
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -287,7 +310,7 @@ async function handleStreaming(
               id: chunk.id || requestId,
               object: 'chat.completion.chunk',
               created: Math.floor(Date.now() / 1000),
-              model: body.model,
+              model: eid,
               choices: chunk.choices,
               ...(chunk.usage ? { usage: chunk.usage } : {}),
             })}\n\n`;
@@ -300,7 +323,6 @@ async function handleStreaming(
 
         const readable = Readable.from(providerStream, { objectMode: true });
         readable.on('error', (err) => {
-          // Prevent unhandledRejection from provider stream errors
           if (!res.writableEnded) {
             res.write(`data: ${JSON.stringify({ error: { message: String(err.message || err), type: 'upstream_error', code: 'stream_error' } })}\n\n`);
             res.write('data: [DONE]\n\n');
@@ -314,15 +336,11 @@ async function handleStreaming(
           sseTransform.on('end', resolve);
         });
 
-        // Snapshot disconnect state immediately after stream ends,
-        // BEFORE res.end() triggers req 'close' event
         const wasCancelled = clientDisconnected;
-        // If the stream completed normally (got finish_reason), treat as success
-        // even if client disconnected after receiving all data
         const status = (!wasCancelled || streamFinished) ? 'success' : 'cancelled';
 
         const latencyMs = Date.now() - startTime;
-        const model = resolveModel(body.model);
+        const model = resolveModel(eid);
         const costCents = model ? toCents(calculateCost(totalUsage, model)) : 0;
 
         if (!wasCancelled) {
@@ -330,13 +348,12 @@ async function handleStreaming(
         }
 
         if (status === 'cancelled') {
-          // Client aborted mid-stream — bill for tokens consumed so far
           if (model && req.userId && totalUsage.total_tokens > 0) {
             deductUsage(req.userId!, totalUsage, model);
           }
           logUsage({
             userId: req.userId!, apiKeyId: req.apiKeyId || null,
-            modelId: body.model, providerId: entry.providerConfig.id,
+            modelId: eid, providerId: entry.providerConfig.id,
             providerName: entry.providerConfig.name,
             providerModelId: entry.providerModelId, requestId,
             inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
@@ -348,13 +365,12 @@ async function handleStreaming(
           return;
         }
 
-        // Post-stream billing
         if (model && req.userId) {
           deductUsage(req.userId!, totalUsage, model);
         }
         logUsage({
           userId: req.userId!, apiKeyId: req.apiKeyId || null,
-          modelId: body.model, providerId: entry.providerConfig.id,
+          modelId: eid, providerId: entry.providerConfig.id,
           providerName: entry.providerConfig.name,
           providerModelId: entry.providerModelId, requestId,
           inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
@@ -404,10 +420,10 @@ async function handleStreaming(
     logUsage({
       userId: req.userId!,
       apiKeyId: req.apiKeyId || null,
-      modelId: body.model,
+      modelId: eid,
       providerId: entries[0]?.providerConfig?.id || '',
       providerName: entries[0]?.providerConfig?.name || '',
-      providerModelId: entries[0]?.providerModelId || body.model,
+      providerModelId: entries[0]?.providerModelId || eid,
       requestId,
       inputTokens: 0,
       outputTokens: 0,
