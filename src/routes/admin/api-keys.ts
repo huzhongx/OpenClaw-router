@@ -1,7 +1,14 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { getDb } from '../../db/connection';
 import { adminAuth } from '../../middleware/admin-auth';
 import { createApiKeyForUser } from '../../services/key-manager';
+
+const apiKeyPostSchema = z.object({
+  user_id: z.string().min(1),
+  name: z.string().min(1).optional(),
+  rate_limit_rpm: z.number().int().min(1).max(10000).optional(),
+});
 
 const router = Router();
 router.use(adminAuth);
@@ -34,11 +41,12 @@ router.get('/', (req: Request, res: Response) => {
 
 // POST /admin/api-keys
 router.post('/', (req: Request, res: Response) => {
-  const { user_id, name, rate_limit_rpm } = req.body;
-  if (!user_id) {
-    res.status(400).json({ error: { message: 'user_id is required' } });
+  const parsed = apiKeyPostSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.issues.map(i => i.message).join(', ') } });
     return;
   }
+  const { user_id, name, rate_limit_rpm } = parsed.data;
 
   const db = getDb();
   const user = db.prepare('SELECT id FROM users WHERE id = ?').get(user_id) as any;

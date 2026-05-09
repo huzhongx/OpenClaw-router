@@ -292,6 +292,7 @@ export class AnthropicProvider extends BaseProvider {
     const h: Record<string, string> = {
       'Content-Type': 'application/json',
       'anthropic-version': this.version,
+      'anthropic-beta': 'prompt-caching-2024-07-31',
     };
     if (this.apiKey) {
       // Support both auth styles: x-api-key (Anthropic) and Authorization (GLM/Zhipu)
@@ -304,14 +305,22 @@ export class AnthropicProvider extends BaseProvider {
     return h;
   }
 
-  private convertMessages(messages: ProviderMessage[]): { system: string; messages: AnthropicMessage[] } {
-    let system = '';
+  private convertMessages(messages: ProviderMessage[]): { system: any; messages: AnthropicMessage[] } {
+    let system: any = '';
+    const systemBlocks: any[] = [];
     const result: AnthropicMessage[] = [];
 
     for (const msg of messages) {
       if (msg.role === 'system') {
-        const text = typeof msg.content === 'string' ? msg.content : (msg.content as ContentPart[]).map(p => p.text || '').join('');
-        system += (system ? '\n' : '') + text;
+        if (typeof msg.content === 'string') {
+          system += (system ? '\n' : '') + msg.content;
+        } else {
+          for (const part of msg.content as ContentPart[]) {
+            const block: any = { type: 'text', text: part.text || '' };
+            if (part.cache_control) block.cache_control = part.cache_control;
+            systemBlocks.push(block);
+          }
+        }
         continue;
       }
 
@@ -339,15 +348,19 @@ export class AnthropicProvider extends BaseProvider {
         const parts = msg.content as ContentPart[];
         for (const part of parts) {
           if (part.type === 'text') {
-            anthropicMsg.content.push({ type: 'text', text: part.text || '' });
+            const block: any = { type: 'text', text: part.text || '' };
+            if (part.cache_control) block.cache_control = part.cache_control;
+            anthropicMsg.content.push(block);
           } else if (part.type === 'image_url' && part.image_url?.url) {
             // Extract base64 data from data URL
             const match = part.image_url.url.match(/^data:(.+);base64,(.+)$/);
             if (match) {
-              anthropicMsg.content.push({
+              const block: any = {
                 type: 'image',
                 source: { type: 'base64', media_type: match[1], data: match[2] },
-              });
+              };
+              if (part.cache_control) block.cache_control = part.cache_control;
+              anthropicMsg.content.push(block);
             }
           }
         }
@@ -385,7 +398,9 @@ export class AnthropicProvider extends BaseProvider {
       result.unshift({ role: 'user', content: [{ type: 'text', text: '.' }] });
     }
 
-    return { system, messages: result };
+    // Use structured system blocks if any had cache_control, otherwise plain string
+    const systemValue = systemBlocks.length > 0 ? systemBlocks : (system || undefined);
+    return { system: systemValue, messages: result };
   }
 
   private convertTools(tools: ToolDef[]): any[] {

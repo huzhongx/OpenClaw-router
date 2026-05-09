@@ -337,7 +337,21 @@ async function handleStreaming(
         });
 
         const wasCancelled = clientDisconnected;
-        const status = (!wasCancelled || streamFinished) ? 'success' : 'cancelled';
+        let status: 'success' | 'cancelled' | 'error';
+        let errorMessage: string | null = null;
+
+        if (wasCancelled && !streamFinished) {
+          status = 'cancelled';
+          errorMessage = 'Client disconnected';
+        } else if (!streamFinished) {
+          status = 'error';
+          errorMessage = 'Stream ended without finish_reason';
+        } else if (totalUsage.total_tokens === 0) {
+          status = 'error';
+          errorMessage = 'Stream completed but provider returned no usage data';
+        } else {
+          status = 'success';
+        }
 
         const latencyMs = Date.now() - startTime;
         const model = resolveModel(eid);
@@ -347,7 +361,7 @@ async function handleStreaming(
           res.end();
         }
 
-        if (status === 'cancelled') {
+        if (status === 'cancelled' || status === 'error') {
           if (model && req.userId && totalUsage.total_tokens > 0) {
             deductUsage(req.userId!, totalUsage, model);
           }
@@ -358,7 +372,7 @@ async function handleStreaming(
             providerModelId: entry.providerModelId, requestId,
             inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
             totalTokens: totalUsage.total_tokens, costCents, latencyMs, ttftMs,
-            status: 'cancelled', errorMessage: 'Client disconnected',
+            status, errorMessage,
             ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
           });
           cleanup();
@@ -375,7 +389,7 @@ async function handleStreaming(
           providerModelId: entry.providerModelId, requestId,
           inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
           totalTokens: totalUsage.total_tokens, costCents, latencyMs, ttftMs,
-          status: 'success', errorMessage: null,
+          status, errorMessage,
           ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
         });
         cleanup();

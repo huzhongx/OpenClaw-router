@@ -1,8 +1,26 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { z } from 'zod';
 import { getDb } from '../../db/connection';
 import { adminAuth } from '../../middleware/admin-auth';
 import { topUp } from '../../services/billing';
+
+const userPostSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email().optional().or(z.literal('')),
+  balance_cents: z.number().int().min(0).optional(),
+});
+
+const userPutSchema = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional().or(z.literal('')).nullable().optional(),
+  is_active: z.boolean().optional(),
+});
+
+const topupSchema = z.object({
+  amount_cents: z.number().int().refine(v => v !== 0, 'Amount must be non-zero'),
+  description: z.string().optional(),
+});
 
 const router = Router();
 router.use(adminAuth);
@@ -34,12 +52,13 @@ router.get('/', (req: Request, res: Response) => {
 
 // POST /admin/users
 router.post('/', (req: Request, res: Response) => {
-  const db = getDb();
-  const { name, email, balance_cents } = req.body;
-  if (!name) {
-    res.status(400).json({ error: { message: 'Name is required' } });
+  const parsed = userPostSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.issues.map(i => i.message).join(', ') } });
     return;
   }
+  const db = getDb();
+  const { name, email, balance_cents } = parsed.data;
 
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
   const id = uuidv4();
@@ -61,8 +80,13 @@ router.post('/', (req: Request, res: Response) => {
 
 // PUT /admin/users/:id
 router.put('/:id', (req: Request, res: Response) => {
+  const parsed = userPutSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.issues.map(i => i.message).join(', ') } });
+    return;
+  }
   const db = getDb();
-  const { name, email, is_active } = req.body;
+  const { name, email, is_active } = parsed.data;
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
   const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id) as any;
@@ -79,11 +103,12 @@ router.put('/:id', (req: Request, res: Response) => {
 
 // POST /admin/users/:id/topup
 router.post('/:id/topup', (req: Request, res: Response) => {
-  const { amount_cents: amountCents, description } = req.body;
-  if (!amountCents || amountCents === 0) {
-    res.status(400).json({ error: { message: 'Amount is required and must be non-zero' } });
+  const parsed = topupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.issues.map(i => i.message).join(', ') } });
     return;
   }
+  const { amount_cents: amountCents, description } = parsed.data;
 
   const db = getDb();
   const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id) as any;

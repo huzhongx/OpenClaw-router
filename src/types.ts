@@ -147,6 +147,7 @@ export interface ContentPart {
   text?: string;
   image_url?: { url: string; detail?: 'auto' | 'low' | 'high' };
   input_audio?: { data: string; format: string };
+  cache_control?: { type: 'ephemeral' };
 }
 
 export interface ToolCall {

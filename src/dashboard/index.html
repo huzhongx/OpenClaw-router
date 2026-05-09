@@ -800,21 +800,28 @@ function scrollToChart(id) {
 
 let dashboardRange = 'today';
 let dashboardProvider = '';
+let dashboardUser = '';
 
 async function renderDashboard() {
   const c = document.getElementById('mainContent');
   c.innerHTML = '<h1>Loading...</h1>';
 
-  const provParam = dashboardProvider ? `provider=${encodeURIComponent(dashboardProvider)}` : '';
-  const provSuffix = provParam ? `&${provParam}` : '';
-  const [provData, stats, rawChartData] = await Promise.all([
+  const filterParams = [
+    dashboardProvider ? `provider=${encodeURIComponent(dashboardProvider)}` : '',
+    dashboardUser ? `user_id=${encodeURIComponent(dashboardUser)}` : '',
+  ].filter(Boolean).join('&');
+  const filterSuffix = filterParams ? `&${filterParams}` : '';
+
+  const [provData, usersData, stats, rawChartData] = await Promise.all([
     cachedApi('/admin/providers'),
-    cachedApi(`/admin/dashboard/stats?range=${dashboardRange}${provSuffix}`),
+    cachedApi('/admin/users', 60000),
+    cachedApi(`/admin/dashboard/stats?range=${dashboardRange}${filterSuffix}`),
     dashboardRange === 'today'
-      ? cachedApi(`/admin/dashboard/hourly-usage?${provParam}`).then(r => r.hours)
-      : cachedApi(`/admin/dashboard/daily-usage?days=${dashboardRange === '7d' ? 7 : 30}${provSuffix}`).then(r => r.days),
+      ? cachedApi(`/admin/dashboard/hourly-usage?${filterParams}`).then(r => r.hours)
+      : cachedApi(`/admin/dashboard/daily-usage?days=${dashboardRange === '7d' ? 7 : 30}${filterSuffix}`).then(r => r.days),
   ]);
 
+  const users = usersData.users || [];
   const rangeLabel = { today: 'Today', '7d': '7 Days', '30d': '30 Days' }[dashboardRange];
   let chartData = rawChartData;
   const rangeData = rawChartData;
@@ -837,6 +844,10 @@ async function renderDashboard() {
       <select style="margin-left:8px;min-width:180px;padding:6px 14px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:20px;color:var(--text-primary);font-size:13px;font-family:inherit;cursor:pointer;transition:all 0.2s;backdrop-filter:blur(10px)" onchange="dashboardProvider=this.value;renderDashboard()">
         <option value="">All Providers</option>
         ${(provData.providers || []).map(p => `<option value="${esc(p.name)}" ${dashboardProvider === p.name ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+      </select>
+      <select style="min-width:160px;padding:6px 14px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:20px;color:var(--text-primary);font-size:13px;font-family:inherit;cursor:pointer;transition:all 0.2s;backdrop-filter:blur(10px)" onchange="dashboardUser=this.value;renderDashboard()">
+        <option value="">All Users</option>
+        ${users.map(u => `<option value="${esc(u.id)}" ${dashboardUser === u.id ? 'selected' : ''}>${esc(u.name || u.email || u.id.slice(0, 8))}</option>`).join('')}
       </select>
     </div>
     <div class="charts-grid">

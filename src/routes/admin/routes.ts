@@ -1,7 +1,29 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { z } from 'zod';
 import { getDb } from '../../db/connection';
 import { adminAuth } from '../../middleware/admin-auth';
+
+const routeEntrySchema = z.object({
+  provider_id: z.string().min(1),
+  provider_model_id: z.string().min(1),
+  priority: z.number().int().min(0).optional(),
+  weight: z.number().int().min(1).optional(),
+});
+
+const routePostSchema = z.object({
+  model_id: z.string().min(1),
+  display_name: z.string().optional(),
+  strategy: z.enum(['priority', 'cheapest', 'quality', 'balanced', 'fastest']).optional(),
+  entries: z.array(routeEntrySchema).min(1),
+});
+
+const routePutSchema = z.object({
+  display_name: z.string().optional(),
+  strategy: z.enum(['priority', 'cheapest', 'quality', 'balanced', 'fastest']).optional(),
+  is_active: z.boolean().optional(),
+  entries: z.array(routeEntrySchema).optional(),
+});
 
 const router = Router();
 router.use(adminAuth);
@@ -23,12 +45,13 @@ router.get('/', (_req: Request, res: Response) => {
 
 // POST /admin/routes
 router.post('/', (req: Request, res: Response) => {
-  const db = getDb();
-  const { model_id, display_name, strategy, entries } = req.body;
-  if (!model_id || !entries?.length) {
-    res.status(400).json({ error: { message: 'model_id and entries are required' } });
+  const parsed = routePostSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.issues.map(i => i.message).join(', ') } });
     return;
   }
+  const db = getDb();
+  const { model_id, display_name, strategy, entries } = parsed.data;
 
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
   const id = uuidv4();
@@ -63,8 +86,13 @@ router.post('/', (req: Request, res: Response) => {
 
 // PUT /admin/routes/:id
 router.put('/:id', (req: Request, res: Response) => {
+  const parsed = routePutSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.issues.map(i => i.message).join(', ') } });
+    return;
+  }
   const db = getDb();
-  const { display_name, strategy, is_active, entries } = req.body;
+  const { display_name, strategy, is_active, entries } = parsed.data;
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
   db.prepare(

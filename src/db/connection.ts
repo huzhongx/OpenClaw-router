@@ -40,6 +40,12 @@ export function getDb(): Database.Database {
     const hasAutoEnabled = db.prepare("SELECT 1 FROM routing_config WHERE key = 'auto_enabled'").get();
     if (!hasAutoEnabled) db.prepare("INSERT INTO routing_config (key, value) VALUES ('auto_enabled', '1')").run();
 
+    // Migration: add performance indexes
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_usage_logs_provider_name_status ON usage_logs(provider_name, status, created_at)'); } catch { /* already exists */ }
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_usage_logs_status_created ON usage_logs(status, created_at)'); } catch { /* already exists */ }
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_routes_model_id_active ON routes(model_id, is_active)'); } catch { /* already exists */ }
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_providers_active ON providers(is_active)'); } catch { /* already exists */ }
+
     logger.info({ dbPath }, 'Database initialized');
   }
   return db;

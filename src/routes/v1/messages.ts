@@ -138,11 +138,19 @@ function toProviderMessages(body: AnthropicRequest): Array<{ role: string; conte
 
   // System prompt as first system message
   if (body.system) {
-    const systemText = typeof body.system === 'string'
-      ? body.system
-      : (body.system as any[]).filter(b => b.type === 'text').map(b => b.text).join('\n');
-    if (systemText) {
-      messages.push({ role: 'system', content: systemText });
+    if (typeof body.system === 'string') {
+      if (body.system) messages.push({ role: 'system', content: body.system });
+    } else {
+      // Structured system blocks — preserve cache_control
+      const blocks = body.system as any[];
+      const contentParts = blocks.filter(b => b.type === 'text').map(b => {
+        const part: any = { type: 'text', text: b.text || '' };
+        if (b.cache_control) part.cache_control = b.cache_control;
+        return part;
+      });
+      if (contentParts.length > 0) {
+        messages.push({ role: 'system', content: contentParts });
+      }
     }
   }
 
@@ -586,9 +594,21 @@ async function handleStreaming(
         // Snapshot disconnect state immediately after stream ends,
         // BEFORE res.end() triggers req 'close' event
         const wasCancelled = clientDisconnected;
-        // If the stream completed normally (got finish_reason), treat as success
-        // even if client disconnected after receiving all data
-        const status = (!wasCancelled || streamFinished) ? 'success' : 'cancelled';
+        let status: 'success' | 'cancelled' | 'error';
+        let errorMessage: string | null = null;
+
+        if (wasCancelled && !streamFinished) {
+          status = 'cancelled';
+          errorMessage = 'Client disconnected';
+        } else if (!streamFinished) {
+          status = 'error';
+          errorMessage = 'Stream ended without finish_reason';
+        } else if (totalUsage.total_tokens === 0) {
+          status = 'error';
+          errorMessage = 'Stream completed but provider returned no usage data';
+        } else {
+          status = 'success';
+        }
 
         const latencyMs = Date.now() - startTime;
         const model = resolveModel(body.model);
@@ -598,7 +618,7 @@ async function handleStreaming(
           res.end();
         }
 
-        if (status === 'cancelled') {
+        if (status === 'cancelled' || status === 'error') {
           if (model && req.userId && totalUsage.total_tokens > 0) {
             deductUsage(req.userId!, totalUsage, model);
           }
@@ -609,7 +629,7 @@ async function handleStreaming(
             providerModelId: entry.providerModelId, requestId,
             inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
             totalTokens: totalUsage.total_tokens, costCents, latencyMs, ttftMs,
-            status: 'cancelled', errorMessage: 'Client disconnected',
+            status, errorMessage,
             ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
           });
           cleanup();
@@ -627,7 +647,7 @@ async function handleStreaming(
           providerModelId: entry.providerModelId, requestId,
           inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
           totalTokens: totalUsage.total_tokens, costCents, latencyMs, ttftMs,
-          status: 'success', errorMessage: null,
+          status, errorMessage,
           ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
         });
         cleanup();

@@ -5,21 +5,37 @@ import { adminAuth } from '../../middleware/admin-auth';
 const router = Router();
 router.use(adminAuth);
 
-function provFilter(providerName: string) {
-  if (!providerName) return '';
-  return ` AND provider_name = '${providerName.replace(/'/g, "''")}'`;
+// Build parameterized provider filter conditions
+function buildProviderFilter(provider: string) {
+  if (!provider) return { sql: '', params: [] as any[] };
+  return { sql: ' AND provider_name = ?', params: [provider] as any[] };
 }
 
-// GET /admin/dashboard/stats?range=today|7d|30d&provider=xxx
+// Build parameterized user filter conditions
+function buildUserFilter(userId: string) {
+  if (!userId) return { sql: '', params: [] as any[] };
+  return { sql: ' AND user_id = ?', params: [userId] as any[] };
+}
+
+function buildFilters(provider: string, userId: string) {
+  const pf = buildProviderFilter(provider);
+  const uf = buildUserFilter(userId);
+  return {
+    sql: pf.sql + uf.sql,
+    params: [...pf.params, ...uf.params],
+  };
+}
+
+// GET /admin/dashboard/stats?range=today|7d|30d&provider=xxx&user_id=xxx
 router.get('/stats', (_req: any, res: Response) => {
   const db = getDb();
   const range = _req.query.range as string || 'today';
-  const pf = provFilter(_req.query.provider as string || '');
+  const { sql: f, params: fParams } = buildFilters(_req.query.provider as string || '', _req.query.user_id as string || '');
 
   const totalUsers = (db.prepare('SELECT COUNT(*) as c FROM users').get() as any).c;
   const activeKeys = (db.prepare("SELECT COUNT(*) as c FROM api_keys WHERE is_active = 1").get() as any).c;
-  const totalRequests = (db.prepare(`SELECT COUNT(*) as c FROM usage_logs WHERE status = 'success'${pf}`).get() as any).c;
-  const totalCostCents = (db.prepare(`SELECT COALESCE(SUM(cost_cents), 0) as c FROM usage_logs WHERE status = 'success'${pf}`).get() as any).c;
+  const totalRequests = (db.prepare(`SELECT COUNT(*) as c FROM usage_logs WHERE status = 'success'${f}`).get(...fParams) as any).c;
+  const totalCostCents = (db.prepare(`SELECT COALESCE(SUM(cost_cents), 0) as c FROM usage_logs WHERE status = 'success'${f}`).get(...fParams) as any).c;
 
   let whereClause: string;
   if (range === '7d') {
@@ -30,10 +46,10 @@ router.get('/stats', (_req: any, res: Response) => {
     whereClause = "date(created_at) = date('now')";
   }
 
-  const rangeWhere = `status = 'success' AND ${whereClause}${pf}`;
-  const rangeRequests = (db.prepare(`SELECT COUNT(*) as c FROM usage_logs WHERE ${rangeWhere}`).get() as any).c;
-  const rangeCostCents = (db.prepare(`SELECT COALESCE(SUM(cost_cents), 0) as c FROM usage_logs WHERE ${rangeWhere}`).get() as any).c;
-  const rangeTokens = (db.prepare(`SELECT COALESCE(SUM(total_tokens), 0) as c FROM usage_logs WHERE ${rangeWhere}`).get() as any).c;
+  const rangeWhere = `status = 'success' AND ${whereClause}${f}`;
+  const rangeRequests = (db.prepare(`SELECT COUNT(*) as c FROM usage_logs WHERE ${rangeWhere}`).get(...fParams) as any).c;
+  const rangeCostCents = (db.prepare(`SELECT COALESCE(SUM(cost_cents), 0) as c FROM usage_logs WHERE ${rangeWhere}`).get(...fParams) as any).c;
+  const rangeTokens = (db.prepare(`SELECT COALESCE(SUM(total_tokens), 0) as c FROM usage_logs WHERE ${rangeWhere}`).get(...fParams) as any).c;
 
   res.json({
     total_users: totalUsers,
@@ -48,11 +64,11 @@ router.get('/stats', (_req: any, res: Response) => {
   });
 });
 
-// GET /admin/dashboard/daily-usage?days=30&provider=xxx
+// GET /admin/dashboard/daily-usage?days=30&provider=xxx&user_id=xxx
 router.get('/daily-usage', (_req: any, res: Response) => {
   const db = getDb();
-  const days = parseInt(_req.query.days as string) || 30;
-  const pf = provFilter(_req.query.provider as string || '');
+  const days = Math.min(Math.max(parseInt(_req.query.days as string) || 30, 1), 365);
+  const { sql: f, params: fParams } = buildFilters(_req.query.provider as string || '', _req.query.user_id as string || '');
 
   const rows = db.prepare(`
     SELECT date(created_at) as date,
@@ -61,18 +77,18 @@ router.get('/daily-usage', (_req: any, res: Response) => {
            SUM(cost_cents) as cost_cents,
            SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
     FROM usage_logs
-    WHERE created_at >= datetime('now', '-${days} days')${pf}
+    WHERE created_at >= datetime('now', '-${days} days')${f}
     GROUP BY date(created_at)
     ORDER BY date(created_at)
-  `).all() as any[];
+  `).all(...fParams) as any[];
 
   res.json({ days: rows });
 });
 
-// GET /admin/dashboard/hourly-usage?provider=xxx
+// GET /admin/dashboard/hourly-usage?provider=xxx&user_id=xxx
 router.get('/hourly-usage', (_req: any, res: Response) => {
   const db = getDb();
-  const pf = provFilter(_req.query.provider as string || '');
+  const { sql: f, params: fParams } = buildFilters(_req.query.provider as string || '', _req.query.user_id as string || '');
 
   const rows = db.prepare(`
     SELECT strftime('%Y-%m-%d %H:00', created_at) as hour,
@@ -81,10 +97,10 @@ router.get('/hourly-usage', (_req: any, res: Response) => {
            SUM(cost_cents) as cost_cents,
            SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
     FROM usage_logs
-    WHERE date(created_at) = date('now')${pf}
+    WHERE date(created_at) = date('now')${f}
     GROUP BY strftime('%Y-%m-%d %H', created_at)
     ORDER BY hour
-  `).all() as any[];
+  `).all(...fParams) as any[];
 
   res.json({ hours: rows });
 });

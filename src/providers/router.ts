@@ -4,9 +4,10 @@ import { config } from '../config';
 import { createProvider } from './registry';
 import { BaseProvider } from './base';
 import { getDefaultStrategy, isAutoRoutingEnabled } from '../services/auto-routing';
+import { decrypt } from '../services/encryption';
 
 function rowToProviderConfig(row: ProviderRow): ProviderConfig {
-  let apiKey = row.api_key || '';
+  let apiKey = row.api_key ? decrypt(row.api_key) : '';
 
   // Environment variable overrides
   const envKey = config.providerKeys[row.type as keyof typeof config.providerKeys];
