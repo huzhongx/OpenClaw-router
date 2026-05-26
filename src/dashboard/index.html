@@ -812,13 +812,15 @@ async function renderDashboard() {
   ].filter(Boolean).join('&');
   const filterSuffix = filterParams ? `&${filterParams}` : '';
 
-  const [provData, usersData, stats, rawChartData] = await Promise.all([
+  const [provData, usersData, stats, rawChartData, provStats, provSeries] = await Promise.all([
     cachedApi('/admin/providers'),
     cachedApi('/admin/users', 60000),
     cachedApi(`/admin/dashboard/stats?range=${dashboardRange}${filterSuffix}`),
     dashboardRange === 'today'
       ? cachedApi(`/admin/dashboard/hourly-usage?${filterParams}`).then(r => r.hours)
       : cachedApi(`/admin/dashboard/daily-usage?days=${dashboardRange === '7d' ? 7 : 30}${filterSuffix}`).then(r => r.days),
+    cachedApi(`/admin/dashboard/provider-stats?range=${dashboardRange}`),
+    cachedApi(`/admin/dashboard/provider-timeseries?range=${dashboardRange}`),
   ]);
 
   const users = usersData.users || [];
@@ -828,7 +830,24 @@ async function renderDashboard() {
   const isHourly = dashboardRange === 'today';
 
   c.innerHTML = `
-    <div class="header"><h1>Dashboard</h1><div class="user-info">Admin: <span>${esc(admin?.username || '')}</span></div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select style="min-width:180px;padding:6px 14px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:20px;color:var(--text-primary);font-size:13px;font-family:inherit;cursor:pointer;transition:all 0.2s;backdrop-filter:blur(10px)" onchange="dashboardProvider=this.value;renderDashboard()">
+          <option value="">All Providers</option>
+          ${(provData.providers || []).map(p => `<option value="${esc(p.name)}" ${dashboardProvider === p.name ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+        </select>
+        <select style="min-width:160px;padding:6px 14px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:20px;color:var(--text-primary);font-size:13px;font-family:inherit;cursor:pointer;transition:all 0.2s;backdrop-filter:blur(10px)" onchange="dashboardUser=this.value;renderDashboard()">
+          <option value="">All Users</option>
+          ${users.map(u => `<option value="${esc(u.id)}" ${dashboardUser === u.id ? 'selected' : ''}>${esc(u.name || u.email || u.id.slice(0, 8))}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="range-btn ${dashboardRange === 'today' ? 'active' : ''}" onclick="dashboardRange='today';renderDashboard()">Today</button>
+        <button class="range-btn ${dashboardRange === '7d' ? 'active' : ''}" onclick="dashboardRange='7d';renderDashboard()">7 Days</button>
+        <button class="range-btn ${dashboardRange === '30d' ? 'active' : ''}" onclick="dashboardRange='30d';renderDashboard()">30 Days</button>
+        <span class="user-info" style="margin-left:12px">Admin: <span>${esc(admin?.username || '')}</span></span>
+      </div>
+    </div>
     <div class="cards">
       <div class="card glass" onclick="scrollToChart('chartRequests')"><div class="label">Requests (${rangeLabel})</div><div class="value green">${fmtNum(stats.range_requests)}</div><div class="link-hint">View trend &darr;</div></div>
       <div class="card glass" onclick="scrollToChart('chartTokens')"><div class="label">Tokens (${rangeLabel})</div><div class="value purple">${fmtM(stats.range_tokens || 0)}</div><div class="link-hint">View trend &darr;</div></div>
@@ -836,19 +855,6 @@ async function renderDashboard() {
       <div class="card glass" onclick="location.hash='#/users'"><div class="label">Total Users</div><div class="value blue">${stats.total_users}</div><div class="link-hint">Users &rarr;</div></div>
       <div class="card glass" onclick="location.hash='#/usage'"><div class="label">Total Requests</div><div class="value blue">${fmtNum(stats.total_requests)}</div><div class="link-hint">Usage logs &rarr;</div></div>
       <div class="card glass" onclick="location.hash='#/billing'"><div class="label">Total Cost</div><div class="value yellow">$${stats.total_cost_usd}</div><div class="link-hint">Billing &rarr;</div></div>
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:20px;align-items:center;flex-wrap:wrap;">
-      <button class="range-btn ${dashboardRange === 'today' ? 'active' : ''}" onclick="dashboardRange='today';renderDashboard()">Today</button>
-      <button class="range-btn ${dashboardRange === '7d' ? 'active' : ''}" onclick="dashboardRange='7d';renderDashboard()">7 Days</button>
-      <button class="range-btn ${dashboardRange === '30d' ? 'active' : ''}" onclick="dashboardRange='30d';renderDashboard()">30 Days</button>
-      <select style="margin-left:8px;min-width:180px;padding:6px 14px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:20px;color:var(--text-primary);font-size:13px;font-family:inherit;cursor:pointer;transition:all 0.2s;backdrop-filter:blur(10px)" onchange="dashboardProvider=this.value;renderDashboard()">
-        <option value="">All Providers</option>
-        ${(provData.providers || []).map(p => `<option value="${esc(p.name)}" ${dashboardProvider === p.name ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
-      </select>
-      <select style="min-width:160px;padding:6px 14px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:20px;color:var(--text-primary);font-size:13px;font-family:inherit;cursor:pointer;transition:all 0.2s;backdrop-filter:blur(10px)" onchange="dashboardUser=this.value;renderDashboard()">
-        <option value="">All Users</option>
-        ${users.map(u => `<option value="${esc(u.id)}" ${dashboardUser === u.id ? 'selected' : ''}>${esc(u.name || u.email || u.id.slice(0, 8))}</option>`).join('')}
-      </select>
     </div>
     <div class="charts-grid">
       <div class="chart-card glass-static">
@@ -862,6 +868,45 @@ async function renderDashboard() {
       <div class="chart-card glass-static">
         <div class="chart-title"><span class="dot" style="background:var(--accent-yellow);box-shadow:0 0 8px var(--accent-yellow)"></span> Cost ($)</div>
         <canvas id="chartCost"></canvas>
+      </div>
+    </div>
+    <div style="margin-top:24px">
+      <h2 style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--text-primary)">Provider Performance (${rangeLabel})</h2>
+      <div class="table-wrap glass-static" style="padding:4px">
+        <table>
+          <tr><th>Provider</th><th>Requests</th><th>Success Rate</th><th>Avg Latency</th><th>P50 Latency</th><th>Avg TTFT</th><th>P50 TTFT</th><th>Cost</th><th>Tokens</th></tr>
+          ${(provStats.providers || []).map(p => {
+            const sr = p.success_rate;
+            const srColor = sr >= 99 ? 'var(--accent-green)' : sr >= 95 ? '#f59e0b' : '#ef4444';
+            const latColor = p.avg_latency_ms < 3000 ? 'var(--accent-green)' : p.avg_latency_ms < 10000 ? '#f59e0b' : '#ef4444';
+            return `<tr>
+              <td style="font-weight:500;color:var(--text-primary)">${esc(p.provider_name || 'unknown')}</td>
+              <td>${fmtNum(p.total_requests)}</td>
+              <td style="color:${srColor};font-weight:600">${sr}%</td>
+              <td style="color:${latColor}">${p.avg_latency_ms ? (p.avg_latency_ms / 1000).toFixed(1) + 's' : '-'}</td>
+              <td>${p.p50_latency_ms ? (p.p50_latency_ms / 1000).toFixed(1) + 's' : '-'}</td>
+              <td>${p.avg_ttft_ms ? (p.avg_ttft_ms / 1000).toFixed(1) + 's' : '-'}</td>
+              <td>${p.p50_ttft_ms ? (p.p50_ttft_ms / 1000).toFixed(1) + 's' : '-'}</td>
+              <td>$${p.cost_usd}</td>
+              <td>${fmtM(p.total_tokens)}</td>
+            </tr>`;
+          }).join('')}
+          ${(provStats.providers || []).length === 0 ? '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:20px">No data for this period</td></tr>' : ''}
+        </table>
+      </div>
+      <div class="charts-grid" style="margin-top:16px">
+        <div class="chart-card glass-static">
+          <div class="chart-title"><span class="dot" style="background:var(--accent-blue);box-shadow:0 0 8px var(--accent-blue)"></span> Requests by Provider</div>
+          <canvas id="chartProvRequests"></canvas>
+        </div>
+        <div class="chart-card glass-static">
+          <div class="chart-title"><span class="dot" style="background:#00d4ff;box-shadow:0 0 8px #00d4ff"></span> Latency by Provider (s)</div>
+          <canvas id="chartProvLatency"></canvas>
+        </div>
+        <div class="chart-card glass-static">
+          <div class="chart-title"><span class="dot" style="background:#f472b6;box-shadow:0 0 8px #f472b6"></span> TTFT by Provider (s)</div>
+          <canvas id="chartProvTtft"></canvas>
+        </div>
       </div>
     </div>
   `;
@@ -967,6 +1012,66 @@ async function renderDashboard() {
         },
       },
     });
+
+    // Provider performance charts — use same labels as main charts
+    const pSeries = provSeries.series || [];
+    if (pSeries.length > 0) {
+      const provNames = [...new Set(pSeries.map(s => s.provider_name))].sort();
+      // Build lookup: "timeBucket:providerName" → data point
+      const pMap = new Map();
+      pSeries.forEach(s => pMap.set(s.time_bucket + ':' + s.provider_name, s));
+      // For hourly, time buckets from API are "00"-"23" (Beijing), match against labels "00:00"-"23:00"
+      // For daily, time buckets are "YYYY-MM-DD", match against labels "MM-DD"
+      const bucketToLabelIdx = (bucket) => {
+        if (isHourly) {
+          // bucket is "00"-"23", labels are "00:00"-"23:00"
+          const idx = labels.findIndex(l => l.startsWith(bucket + ':'));
+          return idx >= 0 ? idx : parseInt(bucket);
+        } else {
+          // bucket is "YYYY-MM-DD", labels are "MM-DD"
+          const suffix = bucket.slice(5); // "MM-DD"
+          return labels.indexOf(suffix);
+        }
+      };
+      const provColors = ['#00d4ff','#f472b6','#34d399','#fbbf24','#a78bfa','#fb923c','#f87171','#60a5fa','#4ade80','#e879f9'];
+      const makeProvDataset = (transform) => provNames.map((name, i) => {
+        const color = provColors[i % provColors.length];
+        const data = new Array(labels.length).fill(0);
+        pSeries.filter(s => s.provider_name === name).forEach(s => {
+          const idx = bucketToLabelIdx(s.time_bucket);
+          if (idx >= 0) data[idx] = transform(s);
+        });
+        return {
+          label: name, data,
+          borderColor: color, backgroundColor: 'transparent',
+          borderWidth: 2, pointRadius: 2, tension: 0.3,
+        };
+      });
+      const provChartOpts = (yCallback) => ({
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'bottom', labels: { color: tickColor, font: { size: 10 }, boxWidth: 12, padding: 8 } } },
+        scales: {
+          x: { ticks: { color: tickColor, font: tickFont, maxRotation: 0, maxTicksLimit: isHourly ? 12 : 15 }, grid: { color: gridColor }, border: { color: borderColor } },
+          y: { ticks: { color: tickColor, font: tickFont, callback: yCallback }, grid: { color: gridColor }, border: { color: borderColor }, beginAtZero: true },
+        },
+      });
+
+      new Chart(document.getElementById('chartProvRequests'), {
+        type: 'line',
+        data: { labels, datasets: makeProvDataset(m => m.requests) },
+        options: provChartOpts(),
+      });
+      new Chart(document.getElementById('chartProvLatency'), {
+        type: 'line',
+        data: { labels, datasets: makeProvDataset(m => +(m.avg_latency_ms / 1000).toFixed(2)) },
+        options: provChartOpts(v => v + 's'),
+      });
+      new Chart(document.getElementById('chartProvTtft'), {
+        type: 'line',
+        data: { labels, datasets: makeProvDataset(m => +(m.avg_ttft_ms / 1000).toFixed(2)) },
+        options: provChartOpts(v => v + 's'),
+      });
+    }
     });
   }
 }

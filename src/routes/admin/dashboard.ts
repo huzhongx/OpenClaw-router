@@ -136,4 +136,100 @@ router.get('/user-stats', (_req: any, res: Response) => {
   res.json({ users: rows });
 });
 
+// GET /admin/dashboard/provider-stats?range=today|7d|30d
+router.get('/provider-stats', (_req: any, res: Response) => {
+  const db = getDb();
+  const range = _req.query.range as string || 'today';
+
+  let whereClause: string;
+  if (range === '7d') {
+    whereClause = "created_at >= datetime('now', '-7 days')";
+  } else if (range === '30d') {
+    whereClause = "created_at >= datetime('now', '-30 days')";
+  } else {
+    whereClause = "date(created_at) = date('now')";
+  }
+
+  // Aggregate stats per provider
+  const rows = db.prepare(`
+    SELECT provider_name,
+      COUNT(*) as total_requests,
+      SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error_count,
+      SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_count,
+      COALESCE(SUM(cost_cents), 0) as cost_cents,
+      COALESCE(SUM(total_tokens), 0) as total_tokens,
+      CAST(COALESCE(AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END), 0) AS INTEGER) as avg_latency_ms,
+      CAST(COALESCE(AVG(CASE WHEN ttft_ms IS NOT NULL THEN ttft_ms END), 0) AS INTEGER) as avg_ttft_ms
+    FROM usage_logs
+    WHERE ${whereClause}
+    GROUP BY provider_name
+    ORDER BY total_requests DESC
+  `).all() as any[];
+
+  // Calculate P50 latency per provider
+  const enriched = rows.map((r: any) => {
+    let p50Latency: number | null = null;
+    let p50Ttft: number | null = null;
+    try {
+      const latencies = db.prepare(
+        `SELECT latency_ms FROM usage_logs WHERE provider_name = ? AND latency_ms IS NOT NULL AND ${whereClause} ORDER BY latency_ms`
+      ).all(r.provider_name) as any[];
+      if (latencies.length > 0) {
+        p50Latency = latencies[Math.floor(latencies.length * 0.5)].latency_ms;
+      }
+      const ttfts = db.prepare(
+        `SELECT ttft_ms FROM usage_logs WHERE provider_name = ? AND ttft_ms IS NOT NULL AND ${whereClause} ORDER BY ttft_ms`
+      ).all(r.provider_name) as any[];
+      if (ttfts.length > 0) {
+        p50Ttft = ttfts[Math.floor(ttfts.length * 0.5)].ttft_ms;
+      }
+    } catch { /* ignore */ }
+
+    return {
+      ...r,
+      success_rate: r.total_requests > 0 ? Math.round(r.success_count / r.total_requests * 100) : 0,
+      p50_latency_ms: p50Latency,
+      p50_ttft_ms: p50Ttft,
+      cost_usd: (r.cost_cents / 100).toFixed(2),
+    };
+  });
+
+  res.json({ providers: enriched });
+});
+
+// GET /admin/dashboard/provider-timeseries?range=today|7d|30d
+router.get('/provider-timeseries', (_req: any, res: Response) => {
+  const db = getDb();
+  const range = _req.query.range as string || 'today';
+
+  let whereClause: string;
+  let groupExpr: string;
+  if (range === '7d') {
+    whereClause = "created_at >= datetime('now', '-7 days')";
+    groupExpr = "date(created_at, '+8 hours')";
+  } else if (range === '30d') {
+    whereClause = "created_at >= datetime('now', '-30 days')";
+    groupExpr = "date(created_at, '+8 hours')";
+  } else {
+    whereClause = "created_at >= datetime('now', 'start of day', '-8 hours')";
+    groupExpr = "strftime('%H', created_at, '+8 hours')";
+  }
+
+  const rows = db.prepare(`
+    SELECT ${groupExpr} as time_bucket,
+      provider_name,
+      COUNT(*) as requests,
+      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors,
+      CAST(COALESCE(AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END), 0) AS INTEGER) as avg_latency_ms,
+      CAST(COALESCE(AVG(CASE WHEN ttft_ms IS NOT NULL THEN ttft_ms END), 0) AS INTEGER) as avg_ttft_ms
+    FROM usage_logs
+    WHERE ${whereClause} AND provider_name IS NOT NULL AND provider_name != ''
+    GROUP BY ${groupExpr}, provider_name
+    ORDER BY time_bucket, provider_name
+  `).all() as any[];
+
+  res.json({ series: rows });
+});
+
 export default router;

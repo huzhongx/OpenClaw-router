@@ -83,7 +83,7 @@ function resolveRouteInternal(modelId: string): ResolvedRouteEntry[] {
 
   if (route) {
     const entries = db.prepare(
-      'SELECT re.*, p.name as provider_name, p.type, p.base_url, p.api_key, p.timeout_ms, p.max_retries, p.config_json FROM route_entries re JOIN providers p ON re.provider_id = p.id WHERE re.route_id = ? AND re.is_active = 1 AND p.is_active = 1 ORDER BY re.priority ASC'
+      'SELECT re.*, p.name as provider_name, p.name as name, p.type, p.base_url, p.api_key, p.timeout_ms, p.max_retries, p.config_json FROM route_entries re JOIN providers p ON re.provider_id = p.id WHERE re.route_id = ? AND re.is_active = 1 AND p.is_active = 1 ORDER BY re.priority ASC'
     ).all(route.id) as (RouteEntryRow & ProviderRow & { provider_name: string })[];
 
     if (entries.length > 0) {

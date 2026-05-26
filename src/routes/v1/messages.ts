@@ -493,6 +493,7 @@ async function handleStreaming(
         let currentBlockIndex = -1;
         let currentBlockType: string | null = null;
         let streamFinished = false;
+        let hasContent = false; // Track if any meaningful chunk was written
 
         // Use a simple Transform that wraps the conversion logic
         const { Transform, Readable } = await import('stream');
@@ -518,6 +519,7 @@ async function handleStreaming(
                 // We can't retroactively update message_start usage, but track it for billing
               }
             } else if (choice.delta?.thinking !== undefined) {
+              hasContent = true;
               if (currentBlockType !== 'thinking') {
                 if (currentBlockType !== null) {
                   output += `event: content_block_stop\ndata: {"type":"content_block_stop","index":${currentBlockIndex}}\n\n`;
@@ -528,6 +530,7 @@ async function handleStreaming(
               }
               output += `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: currentBlockIndex, delta: { type: 'thinking_delta', thinking: choice.delta.thinking } })}\n\n`;
             } else if (choice.delta?.thinking_signature !== undefined) {
+              hasContent = true;
               if (currentBlockType !== 'redacted_thinking') {
                 if (currentBlockType !== null) {
                   output += `event: content_block_stop\ndata: {"type":"content_block_stop","index":${currentBlockIndex}}\n\n`;
@@ -538,6 +541,7 @@ async function handleStreaming(
               }
               output += `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: currentBlockIndex, delta: { type: 'signature_delta', signature: choice.delta.thinking_signature } })}\n\n`;
             } else if (choice.delta?.content) {
+              hasContent = true;
               if (currentBlockType !== 'text') {
                 currentBlockIndex++;
                 currentBlockType = 'text';
@@ -545,6 +549,7 @@ async function handleStreaming(
               }
               output += `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: currentBlockIndex, delta: { type: 'text_delta', text: choice.delta.content } })}\n\n`;
             } else if (choice.delta?.tool_calls?.length) {
+              hasContent = true;
               for (const tc of choice.delta.tool_calls) {
                 if (tc.id && tc.id !== '') {
                   // Close previous block if any
@@ -600,6 +605,32 @@ async function handleStreaming(
         if (wasCancelled && !streamFinished) {
           status = 'cancelled';
           errorMessage = 'Client disconnected';
+        } else if (!streamFinished && !hasContent) {
+          // Empty stream — no content was sent to client, safe to retry with next provider
+          const latencyMs = Date.now() - startTime;
+          const model = resolveModel(body.model);
+          if (model && req.userId && totalUsage.total_tokens > 0) {
+            deductUsage(req.userId!, totalUsage, model);
+          }
+          logUsage({
+            userId: req.userId!, apiKeyId: req.apiKeyId || null,
+            modelId: body.model, providerId: entry.providerConfig.id,
+            providerName: entry.providerConfig.name,
+            providerModelId: entry.providerModelId, requestId,
+            inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
+            totalTokens: totalUsage.total_tokens,
+            costCents: model ? toCents(calculateCost(totalUsage, model)) : 0,
+            latencyMs, ttftMs,
+            status: 'error',
+            errorMessage: 'Stream ended without finish_reason',
+            ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
+          });
+          // Throw retryable error to trigger fallback
+          const pe = new Error('Stream ended without finish_reason') as Error & ProviderError;
+          pe.status = 502;
+          pe.retryable = true;
+          pe.code = 'empty_stream';
+          throw pe;
         } else if (!streamFinished) {
           status = 'error';
           errorMessage = 'Stream ended without finish_reason';

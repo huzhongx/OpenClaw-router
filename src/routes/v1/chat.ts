@@ -292,6 +292,7 @@ async function handleStreaming(
         const providerStream = provider.chatStream(providerRequest, clientAbort.signal);
         let totalUsage = emptyUsage();
         let streamFinished = false;
+        let hasContent = false; // Track if any meaningful chunk was written
 
         // Use Transform stream to convert provider chunks to SSE format
         const { Readable, Transform } = await import('stream');
@@ -306,6 +307,12 @@ async function handleStreaming(
             if (ttftMs === null && delta && (delta.content || delta.thinking || delta.tool_calls)) {
               ttftMs = Date.now() - startTime;
             }
+
+            // Mark as having content if there's any delta payload (even empty role-only chunks count)
+            if (delta && (delta.content || delta.thinking || delta.tool_calls || delta.role)) {
+              hasContent = true;
+            }
+
             const sseData = `data: ${JSON.stringify({
               id: chunk.id || requestId,
               object: 'chat.completion.chunk',
@@ -317,7 +324,12 @@ async function handleStreaming(
             callback(null, sseData);
           },
           flush(callback) {
-            callback(null, 'data: [DONE]\n\n');
+            // Only write [DONE] if stream produced meaningful content
+            if (hasContent || streamFinished) {
+              callback(null, 'data: [DONE]\n\n');
+            } else {
+              callback();
+            }
           },
         });
 
@@ -343,6 +355,32 @@ async function handleStreaming(
         if (wasCancelled && !streamFinished) {
           status = 'cancelled';
           errorMessage = 'Client disconnected';
+        } else if (!streamFinished && !hasContent) {
+          // Empty stream — no content was sent to client, safe to retry with next provider
+          const latencyMs = Date.now() - startTime;
+          const model = resolveModel(eid);
+          if (model && req.userId && totalUsage.total_tokens > 0) {
+            deductUsage(req.userId!, totalUsage, model);
+          }
+          logUsage({
+            userId: req.userId!, apiKeyId: req.apiKeyId || null,
+            modelId: eid, providerId: entry.providerConfig.id,
+            providerName: entry.providerConfig.name,
+            providerModelId: entry.providerModelId, requestId,
+            inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
+            totalTokens: totalUsage.total_tokens,
+            costCents: model ? toCents(calculateCost(totalUsage, model)) : 0,
+            latencyMs, ttftMs,
+            status: 'error',
+            errorMessage: 'Stream ended without finish_reason',
+            ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
+          });
+          // Throw retryable error to trigger fallback
+          const pe = new Error('Stream ended without finish_reason') as Error & ProviderError;
+          pe.status = 502;
+          pe.retryable = true;
+          pe.code = 'empty_stream';
+          throw pe;
         } else if (!streamFinished) {
           status = 'error';
           errorMessage = 'Stream ended without finish_reason';
@@ -351,6 +389,11 @@ async function handleStreaming(
           errorMessage = 'Stream completed but provider returned no usage data';
         } else {
           status = 'success';
+        }
+
+        // Write [DONE] for non-empty but unfinished streams (hasContent but !streamFinished)
+        if (!wasCancelled && hasContent && !streamFinished) {
+          res.write('data: [DONE]\n\n');
         }
 
         const latencyMs = Date.now() - startTime;
