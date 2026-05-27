@@ -911,16 +911,14 @@ async function renderDashboard() {
     </div>
   `;
 
-  // Build chart data: fill missing hours for hourly view (convert to Beijing time)
-  const bjOffset = 8 * 60; // UTC+8 in minutes
+  // Build chart data: fill missing hours/days (dates are already in Beijing time from API)
   let labels;
   if (isHourly) {
     const hourMap = {};
     rangeData.forEach(d => {
-      // Convert server hour to Beijing hour
-      const utcH = parseInt((d.hour || '').slice(11, 13));
-      const bjH = (utcH + 8) % 24;
-      hourMap[String(bjH).padStart(2, '0')] = d;
+      // API already returns Beijing-time hours
+      const h = (d.hour || '').slice(11, 13);
+      hourMap[h] = d;
     });
     chartData = Array.from({ length: 24 }, (_, i) => {
       const h = String(i).padStart(2, '0');
@@ -929,12 +927,19 @@ async function renderDashboard() {
     });
     labels = chartData.map((_, i) => String(i).padStart(2, '0') + ':00');
   } else {
-    chartData = rangeData;
-    labels = rangeData.map(d => {
-      if (!d.date) return '';
-      const dt = new Date(d.date + 'T00:00:00Z');
-      return dt.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(5, 10);
+    // Fill missing dates with zeros
+    const dateMap = {};
+    rangeData.forEach(d => { dateMap[d.date] = d; });
+    const numDays = dashboardRange === '7d' ? 7 : 30;
+    const today = new Date();
+    today.setHours(today.getHours() + 8); // Approximate BJ time for label generation
+    chartData = Array.from({ length: numDays }, (_, i) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() - (numDays - 1 - i));
+      const ds = d.toISOString().slice(0, 10);
+      return dateMap[ds] || { date: ds, requests: 0, tokens: 0, cost_cents: 0, errors: 0 };
     });
+    labels = chartData.map(d => d.date ? d.date.slice(5, 10) : '');
   }
   const isLight = getTheme() === 'light';
   const gridColor = isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.03)';

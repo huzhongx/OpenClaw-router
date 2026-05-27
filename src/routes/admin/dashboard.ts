@@ -43,7 +43,7 @@ router.get('/stats', (_req: any, res: Response) => {
   } else if (range === '30d') {
     whereClause = "created_at >= datetime('now', '-30 days')";
   } else {
-    whereClause = "date(created_at) = date('now')";
+    whereClause = "date(created_at, '+8 hours') = date('now', '+8 hours')";
   }
 
   const rangeWhere = `status = 'success' AND ${whereClause}${f}`;
@@ -71,15 +71,15 @@ router.get('/daily-usage', (_req: any, res: Response) => {
   const { sql: f, params: fParams } = buildFilters(_req.query.provider as string || '', _req.query.user_id as string || '');
 
   const rows = db.prepare(`
-    SELECT date(created_at) as date,
+    SELECT date(created_at, '+8 hours') as date,
            COUNT(*) as requests,
            SUM(total_tokens) as tokens,
            SUM(cost_cents) as cost_cents,
            SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
     FROM usage_logs
     WHERE created_at >= datetime('now', '-${days} days')${f}
-    GROUP BY date(created_at)
-    ORDER BY date(created_at)
+    GROUP BY date(created_at, '+8 hours')
+    ORDER BY date(created_at, '+8 hours')
   `).all(...fParams) as any[];
 
   res.json({ days: rows });
@@ -91,14 +91,14 @@ router.get('/hourly-usage', (_req: any, res: Response) => {
   const { sql: f, params: fParams } = buildFilters(_req.query.provider as string || '', _req.query.user_id as string || '');
 
   const rows = db.prepare(`
-    SELECT strftime('%Y-%m-%d %H:00', created_at) as hour,
+    SELECT strftime('%Y-%m-%d %H:00', created_at, '+8 hours') as hour,
            COUNT(*) as requests,
            SUM(total_tokens) as tokens,
            SUM(cost_cents) as cost_cents,
            SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
     FROM usage_logs
-    WHERE date(created_at) = date('now')${f}
-    GROUP BY strftime('%Y-%m-%d %H', created_at)
+    WHERE date(created_at, '+8 hours') = date('now', '+8 hours')${f}
+    GROUP BY strftime('%Y-%m-%d %H', created_at, '+8 hours')
     ORDER BY hour
   `).all(...fParams) as any[];
 
@@ -116,7 +116,7 @@ router.get('/user-stats', (_req: any, res: Response) => {
   } else if (range === '30d') {
     whereClause = "ul.created_at >= datetime('now', '-30 days')";
   } else {
-    whereClause = "date(ul.created_at) = date('now')";
+    whereClause = "date(ul.created_at, '+8 hours') = date('now', '+8 hours')";
   }
 
   const rows = db.prepare(`
@@ -147,7 +147,7 @@ router.get('/provider-stats', (_req: any, res: Response) => {
   } else if (range === '30d') {
     whereClause = "created_at >= datetime('now', '-30 days')";
   } else {
-    whereClause = "date(created_at) = date('now')";
+    whereClause = "date(created_at, '+8 hours') = date('now', '+8 hours')";
   }
 
   // Aggregate stats per provider
