@@ -342,6 +342,7 @@ async function handleNonStreaming(
   const errors: ProviderError[] = [];
   const providerMessages = toProviderMessages(body);
   const providerTools = toProviderTools(body.tools);
+  let lastFailedEntry = entries[0];
 
   for (const entry of entries) {
     const provider = createProvider(entry.providerConfig);
@@ -399,6 +400,7 @@ async function handleNonStreaming(
         retryable: false,
       };
       errors.push(pe);
+      lastFailedEntry = entry;
       if (!pe.retryable) break;
     }
   }
@@ -409,6 +411,26 @@ async function handleNonStreaming(
       type: 'api_error',
       message: `All providers failed: ${errors.map(e => String(e.message || e)).join('; ')}`,
     },
+  });
+
+  logUsage({
+    userId: req.userId!,
+    apiKeyId: req.apiKeyId || null,
+    modelId: body.model,
+    providerId: lastFailedEntry?.providerConfig?.id || '',
+    providerName: lastFailedEntry?.providerConfig?.name || '',
+    providerModelId: lastFailedEntry?.providerModelId || body.model,
+    requestId,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    costCents: 0,
+    latencyMs: Date.now() - startTime,
+    ttftMs: null,
+    status: 'error',
+    errorMessage: errors.map(e => String(e.message || e)).join('; '),
+    ipAddress: req.ip || null,
+    userAgent: req.headers['user-agent'] || null,
   });
 }
 
@@ -466,6 +488,7 @@ async function handleStreaming(
   const providerTools = toProviderTools(body.tools);
 
   const errors: ProviderError[] = [];
+  let lastFailedEntry = entries[0]; // Track the provider that actually failed
 
   try {
     let ttftMs: number | null = null;
@@ -693,6 +716,7 @@ async function handleStreaming(
           retryable: false,
         };
         errors.push(pe);
+        lastFailedEntry = entry;
 
         if (pe.retryable && i < entries.length - 1) {
           res.write(`: Retrying with next provider...\n\n`);
@@ -722,9 +746,9 @@ async function handleStreaming(
       userId: req.userId!,
       apiKeyId: req.apiKeyId || null,
       modelId: body.model,
-      providerId: entries[0]?.providerConfig?.id || '',
-      providerName: entries[0]?.providerConfig?.name || '',
-      providerModelId: entries[0]?.providerModelId || body.model,
+      providerId: lastFailedEntry?.providerConfig?.id || '',
+      providerName: lastFailedEntry?.providerConfig?.name || '',
+      providerModelId: lastFailedEntry?.providerModelId || body.model,
       requestId,
       inputTokens: 0,
       outputTokens: 0,
