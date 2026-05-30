@@ -455,7 +455,7 @@ async function handleStreaming(
         }
         // Send timeout error to client immediately instead of hanging
         if (pe.code === 'upstream_timeout') {
-          res.write(`data: ${JSON.stringify({ error: { message: 'Upstream provider connection timed out (30s)', type: 'upstream_error', code: 'upstream_timeout' } })}\n\n`);
+          res.write(`data: ${JSON.stringify({ error: { message: `Upstream provider connection timed out`, type: 'upstream_error', code: 'upstream_timeout' } })}\n\n`);
         }
         break;
       }

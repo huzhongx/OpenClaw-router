@@ -1213,7 +1213,7 @@ function showCreateUserModal() {
 
 async function createUser() {
   const name = document.getElementById('mUserName').value;
-  const email = document.getElementById('mUserEmail').value || null;
+  const email = document.getElementById('mUserEmail').value || undefined;
   const balance_cents = parseInt(document.getElementById('mUserBalance').value) || 0;
   await api('/admin/users', { method: 'POST', body: JSON.stringify({ name, email, balance_cents }) });
   closeModal(); renderUsers();
