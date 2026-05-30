@@ -316,6 +316,7 @@ async function handleStreaming(
         let totalUsage = emptyUsage();
         let streamFinished = false;
         let hasContent = false; // Track if any meaningful chunk was written
+        let hasToolCalls = false; // Track if tool_call deltas were sent
 
         // Use Transform stream to convert provider chunks to SSE format
         const { Readable, Transform } = await import('stream');
@@ -334,6 +335,9 @@ async function handleStreaming(
             // Mark as having content if there's any delta payload (even empty role-only chunks count)
             if (delta && (delta.content || delta.thinking || delta.tool_calls || delta.role)) {
               hasContent = true;
+            }
+            if (delta?.tool_calls?.length) {
+              hasToolCalls = true;
             }
 
             const sseData = `data: ${JSON.stringify({
@@ -416,6 +420,10 @@ async function handleStreaming(
 
         // Write [DONE] for non-empty but unfinished streams (hasContent but !streamFinished)
         if (!wasCancelled && hasContent && !streamFinished) {
+          // Warn client if tool_call arguments were truncated
+          if (hasToolCalls) {
+            res.write(`data: ${JSON.stringify({ error: { message: 'Tool call arguments truncated due to incomplete stream', type: 'upstream_error', code: 'tool_call_truncated' } })}\n\n`);
+          }
           res.write('data: [DONE]\n\n');
         }
 

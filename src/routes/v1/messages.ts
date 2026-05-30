@@ -517,6 +517,7 @@ async function handleStreaming(
         let currentBlockType: string | null = null;
         let streamFinished = false;
         let hasContent = false; // Track if any meaningful chunk was written
+        let hasToolCalls = false; // Track if tool_call deltas were sent
 
         // Use a simple Transform that wraps the conversion logic
         const { Transform, Readable } = await import('stream');
@@ -573,6 +574,7 @@ async function handleStreaming(
               output += `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: currentBlockIndex, delta: { type: 'text_delta', text: choice.delta.content } })}\n\n`;
             } else if (choice.delta?.tool_calls?.length) {
               hasContent = true;
+              hasToolCalls = true;
               for (const tc of choice.delta.tool_calls) {
                 if (tc.id && tc.id !== '') {
                   // Close previous block if any
@@ -599,6 +601,10 @@ async function handleStreaming(
             // If stream ended without finish_reason, close any open content block
             if (!streamFinished && currentBlockType !== null) {
               res.write(`event: content_block_stop\ndata: {"type":"content_block_stop","index":${currentBlockIndex}}\n\n`);
+            }
+            // Warn client if tool_call arguments were truncated
+            if (!streamFinished && hasToolCalls) {
+              res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'Tool call arguments truncated due to incomplete stream' } })}\n\n`);
             }
             callback();
           },
