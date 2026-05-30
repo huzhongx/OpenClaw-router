@@ -46,7 +46,7 @@ const messagesRequestSchema = z.object({
   model: z.string().min(1),
   messages: z.array(anthropicMessageSchema).min(1),
   system: z.union([z.string(), z.array(anthropicContentBlockSchema)]).optional(),
-  max_tokens: z.number().int().positive().optional().default(4096),
+  max_tokens: z.number().int().positive().optional().default(16384),
   temperature: z.number().min(0).max(2).optional(),
   top_p: z.number().min(0).max(1).optional(),
   stop_sequences: z.array(z.string()).optional(),

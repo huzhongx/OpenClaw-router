@@ -44,7 +44,7 @@ export class AnthropicProvider extends BaseProvider {
     const body: any = {
       model: request.model,
       messages,
-      max_tokens: request.max_tokens || 4096,
+      max_tokens: request.max_tokens || 16384,
     };
     if (system) body.system = system;
     if (request.temperature !== undefined) body.temperature = request.temperature;
@@ -75,7 +75,7 @@ export class AnthropicProvider extends BaseProvider {
     const body: any = {
       model: request.model,
       messages,
-      max_tokens: request.max_tokens || 4096,
+      max_tokens: request.max_tokens || 16384,
       stream: true,
     };
     if (system) body.system = system;
