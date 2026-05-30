@@ -16,6 +16,7 @@ interface UsageLogRecord {
   costCents: number;
   latencyMs: number;
   ttftMs?: number | null;
+  finishReason?: string | null;
   status: string;
   errorMessage: string | null;
   ipAddress: string | null;
@@ -63,8 +64,8 @@ function flushBatch(batch: (UsageLogRecord & { id: string })[]): void {
     const stmt = db.prepare(`
       INSERT INTO usage_logs (id, user_id, api_key_id, model_id, provider_id, provider_name, provider_model_id,
         request_id, input_tokens, output_tokens, total_tokens, cost_cents, latency_ms, ttft_ms,
-        status, error_message, ip_address, user_agent, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        finish_reason, status, error_message, ip_address, user_agent, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((records: typeof batch) => {
@@ -72,6 +73,7 @@ function flushBatch(batch: (UsageLogRecord & { id: string })[]): void {
         stmt.run(
           r.id, r.userId, r.apiKeyId, r.modelId, r.providerId, r.providerName, r.providerModelId,
           r.requestId, r.inputTokens, r.outputTokens, r.totalTokens, r.costCents, r.latencyMs, r.ttftMs ?? null,
+          r.finishReason ?? null,
           r.status, r.errorMessage, r.ipAddress, r.userAgent, now
         );
       }

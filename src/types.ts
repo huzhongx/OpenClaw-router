@@ -102,6 +102,7 @@ export interface UsageLogRow {
   cost_cents: number;
   latency_ms: number | null;
   ttft_ms: number | null;
+  finish_reason: string | null;
   status: string;
   error_message: string | null;
   ip_address: string | null;

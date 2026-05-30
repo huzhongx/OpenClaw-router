@@ -101,6 +101,7 @@ router.post('/chat/completions', apiKeyAuth, rateLimit, async (req: Request, res
       costCents: 0,
       latencyMs,
       ttftMs: null,
+      finishReason: null,
       status: 'error',
       errorMessage: err.message || String(err),
       ipAddress: req.ip || null,
@@ -160,6 +161,7 @@ async function handleNonStreaming(
       const response = await provider.chat(providerRequest);
       const usage = normalizeUsage(response.usage);
       const latencyMs = Date.now() - startTime;
+      const nsFinishReason = response.choices?.[0]?.finish_reason || null;
 
       // Look up model for pricing
       const model = resolveModel(eid);
@@ -185,6 +187,7 @@ async function handleNonStreaming(
         costCents,
         latencyMs,
         ttftMs: latencyMs,
+        finishReason: nsFinishReason,
         status: 'success',
         errorMessage: null,
         ipAddress: req.ip || null,
@@ -315,6 +318,7 @@ async function handleStreaming(
         const providerStream = provider.chatStream(providerRequest, clientAbort.signal);
         let totalUsage = emptyUsage();
         let streamFinished = false;
+        let finishReason: string | null = null;
         let hasContent = false; // Track if any meaningful chunk was written
         let hasToolCalls = false; // Track if tool_call deltas were sent
 
@@ -324,7 +328,10 @@ async function handleStreaming(
           objectMode: true,
           transform(chunk: any, _encoding, callback) {
             if (chunk.usage && isUsageValid(chunk.usage)) totalUsage = chunk.usage;
-            if (chunk.choices?.[0]?.finish_reason) streamFinished = true;
+            if (chunk.choices?.[0]?.finish_reason) {
+              streamFinished = true;
+              finishReason = chunk.choices[0].finish_reason;
+            }
 
             // Capture TTFT on first chunk with any output (content, thinking, tool_calls)
             const delta = chunk.choices?.[0]?.delta;
@@ -398,6 +405,7 @@ async function handleStreaming(
             totalTokens: totalUsage.total_tokens,
             costCents: model ? toCents(calculateCost(totalUsage, model)) : 0,
             latencyMs, ttftMs,
+            finishReason: null,
             status: 'error',
             errorMessage: 'Stream ended without finish_reason',
             ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
@@ -446,6 +454,7 @@ async function handleStreaming(
             providerModelId: entry.providerModelId, requestId,
             inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
             totalTokens: totalUsage.total_tokens, costCents, latencyMs, ttftMs,
+            finishReason: !streamFinished ? null : finishReason,
             status, errorMessage,
             ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
           });
@@ -463,6 +472,7 @@ async function handleStreaming(
           providerModelId: entry.providerModelId, requestId,
           inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
           totalTokens: totalUsage.total_tokens, costCents, latencyMs, ttftMs,
+          finishReason: finishReason,
           status, errorMessage,
           ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
         });
@@ -520,6 +530,7 @@ async function handleStreaming(
       costCents: 0,
       latencyMs,
       ttftMs: null,
+      finishReason: null,
       status: 'error',
       errorMessage: errors.map(e => e.message).join('; '),
       ipAddress: req.ip || null,
