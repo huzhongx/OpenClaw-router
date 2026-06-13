@@ -640,27 +640,9 @@ async function handleStreaming(
           status = 'cancelled';
           errorMessage = 'Client disconnected';
         } else if (!streamFinished && !hasContent) {
-          // Empty stream — no content was sent to client, safe to retry with next provider
-          const latencyMs = Date.now() - startTime;
-          const model = resolveModel(body.model);
-          if (model && req.userId && totalUsage.total_tokens > 0) {
-            deductUsage(req.userId!, totalUsage, model);
-          }
-          logUsage({
-            userId: req.userId!, apiKeyId: req.apiKeyId || null,
-            modelId: body.model, providerId: entry.providerConfig.id,
-            providerName: entry.providerConfig.name,
-            providerModelId: entry.providerModelId, requestId,
-            inputTokens: totalUsage.prompt_tokens, outputTokens: totalUsage.completion_tokens,
-            totalTokens: totalUsage.total_tokens,
-            costCents: model ? toCents(calculateCost(totalUsage, model)) : 0,
-            latencyMs, ttftMs,
-            finishReason: null,
-            status: 'error',
-            errorMessage: 'Stream ended without finish_reason',
-            ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null,
-          });
-          // Throw retryable error to trigger fallback
+          // Empty stream — no content was sent to client, safe to retry with next provider.
+          // Skip logUsage here: this is a retryable error, the final outcome will be logged
+          // by the retry attempt (success) or the "All providers failed" block below.
           const pe = new Error('Stream ended without finish_reason') as Error & ProviderError;
           pe.status = 502;
           pe.retryable = true;
