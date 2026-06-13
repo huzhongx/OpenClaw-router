@@ -1811,6 +1811,7 @@ function _usageRenderRows(data, page) {
       <td>${l.latency_ms ? `<span style="color:${l.latency_ms >= 60000 ? 'var(--accent-red,#f44)' : l.latency_ms >= 30000 ? 'var(--accent-yellow,#fa0)' : 'var(--text-primary)'}">${l.latency_ms >= 1000 ? Math.round(l.latency_ms/1000) + 's' : l.latency_ms + 'ms'}</span>` : '-'}</td>
       <td>${fmtTtft(l.ttft_ms)}</td>
       <td><span class="badge ${l.status}">${l.status}</span></td>
+      <td style="font-size:12px;color:${l.status === 'error' ? 'var(--accent-red,#f44)' : l.status === 'cancelled' ? 'var(--accent-yellow,#fa0)' : 'var(--text-secondary)'};max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(l.error_message || '')}">${l.error_message ? esc(l.error_message.split(';')[0].trim().slice(0, 80)) : '-'}</td>
     </tr>
   `).join('');
   const emptyEl = document.getElementById('usageEmpty');
@@ -1909,7 +1910,7 @@ async function renderUsage(page = 1) {
     </div>
     <div class="table-wrap glass-static" style="padding:4px">
     <table>
-      <tr><th>Time</th><th>User</th><th>Model</th><th>Provider</th><th>Tokens</th><th>Cost</th><th>Latency</th><th>TTFT</th><th>Status</th></tr>
+      <tr><th>Time</th><th>User</th><th>Model</th><th>Provider</th><th>Tokens</th><th>Cost</th><th>Latency</th><th>TTFT</th><th>Status</th><th>Reason</th></tr>
       <tbody id="usageTableBody"></tbody>
     </table>
     </div>
