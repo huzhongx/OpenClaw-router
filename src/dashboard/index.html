@@ -1785,11 +1785,13 @@ function _usageBuildParams(page) {
   const filterStatus = window._usageFilterStatus || '';
   const filterDateFrom = window._usageFilterDateFrom || '';
   const filterDateTo = window._usageFilterDateTo || '';
+  const filterLatency = window._usageFilterLatency || '';
   if (filterUser) params.set('user_id', filterUser);
   if (filterProvider) params.set('provider', filterProvider);
   if (filterStatus) params.set('status', filterStatus);
   if (filterDateFrom) params.set('date_from', filterDateFrom);
   if (filterDateTo) params.set('date_to', filterDateTo);
+  if (filterLatency) params.set('min_latency', filterLatency);
   params.set('page', page);
   return params;
 }
@@ -1806,7 +1808,7 @@ function _usageRenderRows(data, page) {
       <td>${esc(l.provider_name)}</td>
       <td>${fmtNum(l.total_tokens)}</td>
       <td style="color:var(--accent-yellow)">${fmt$(l.cost_cents)}</td>
-      <td>${l.latency_ms ? l.latency_ms + 'ms' : '-'}</td>
+      <td>${l.latency_ms ? `<span style="color:${l.latency_ms >= 60000 ? 'var(--accent-red,#f44)' : l.latency_ms >= 30000 ? 'var(--accent-yellow,#fa0)' : 'var(--text-primary)'}">${l.latency_ms >= 1000 ? Math.round(l.latency_ms/1000) + 's' : l.latency_ms + 'ms'}</span>` : '-'}</td>
       <td>${fmtTtft(l.ttft_ms)}</td>
       <td><span class="badge ${l.status}">${l.status}</span></td>
     </tr>
@@ -1871,6 +1873,7 @@ async function renderUsage(page = 1) {
   const filterStatus = window._usageFilterStatus || '';
   const filterDateFrom = window._usageFilterDateFrom || '';
   const filterDateTo = window._usageFilterDateTo || '';
+  const filterLatency = window._usageFilterLatency || '';
 
   c.innerHTML = `
     <div class="header"><h1>Usage Logs</h1><div style="display:flex;align-items:center;gap:8px">
@@ -1896,6 +1899,13 @@ async function renderUsage(page = 1) {
       <span style="color:var(--text-muted)">~</span>
       <input type="text" id="usageDateTo" placeholder="To date" style="min-width:140px" value="${esc(filterDateTo)}">
       ${(filterDateFrom || filterDateTo) ? `<button class="btn sm" onclick="window._usageFilterDateFrom='';window._usageFilterDateTo='';renderUsage(1)">Clear</button>` : ''}
+      <select id="filterLatency" style="min-width:140px" onchange="window._usageFilterLatency=this.value;renderUsage(1)">
+        <option value="">All Latency</option>
+        <option value="10000" ${filterLatency === '10000' ? 'selected' : ''}>&gt;10s</option>
+        <option value="30000" ${filterLatency === '30000' ? 'selected' : ''}>&gt;30s</option>
+        <option value="60000" ${filterLatency === '60000' ? 'selected' : ''}>&gt;60s</option>
+        <option value="120000" ${filterLatency === '120000' ? 'selected' : ''}>&gt;120s</option>
+      </select>
     </div>
     <div class="table-wrap glass-static" style="padding:4px">
     <table>

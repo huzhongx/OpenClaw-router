@@ -8,8 +8,9 @@ const router = Router();
 router.get('/', (_req: Request, res: Response) => {
   const htmlPath = path.resolve(__dirname, 'index.html');
   if (fs.existsSync(htmlPath)) {
-    res.setHeader('Cache-Control', 'no-cache');
-    res.sendFile(htmlPath);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
+    res.sendFile(htmlPath, { maxAge: 0 });
   } else {
     res.status(404).send('Dashboard not found. Build the dashboard first.');
   }

@@ -146,7 +146,10 @@ export class OpenAIProvider extends BaseProvider {
     };
     if (request.temperature !== undefined) body.temperature = request.temperature;
     if (request.top_p !== undefined) body.top_p = request.top_p;
-    if (request.max_tokens !== undefined) body.max_tokens = request.max_tokens;
+    if (request.max_tokens !== undefined) {
+      const fieldName = this.config.extra?.max_tokens_field || 'max_tokens';
+      body[fieldName] = request.max_tokens;
+    }
     if (request.stop) body.stop = request.stop;
     if (request.stream !== undefined) body.stream = request.stream;
     if (request.stream) body.stream_options = { include_usage: true };

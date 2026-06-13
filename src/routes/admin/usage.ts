@@ -17,6 +17,7 @@ router.get('/', (req: Request, res: Response) => {
   const status = req.query.status as string;
   const dateFrom = req.query.date_from as string;
   const dateTo = req.query.date_to as string;
+  const minLatency = parseInt(req.query.min_latency as string) || 0;
 
   const conditions: string[] = [];
   const params: any[] = [];
@@ -27,6 +28,7 @@ router.get('/', (req: Request, res: Response) => {
   if (status) { conditions.push('ul.status = ?'); params.push(status); }
   if (dateFrom) { conditions.push('ul.created_at >= ?'); params.push(dateFrom); }
   if (dateTo) { conditions.push('ul.created_at <= ?'); params.push(dateTo + ' 23:59:59'); }
+  if (minLatency > 0) { conditions.push('ul.latency_ms >= ?'); params.push(minLatency); }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
