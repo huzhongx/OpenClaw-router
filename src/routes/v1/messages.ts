@@ -541,11 +541,12 @@ async function handleStreaming(
 
             let output = '';
 
-            if (choice.delta?.role) {
-              // Skip — we already sent message_start above; just update usage if available
-              if (chunk.usage?.prompt_tokens) {
-                // We can't retroactively update message_start usage, but track it for billing
-              }
+            if (choice.delta?.role && !choice.delta?.content && choice.delta?.thinking === undefined && !choice.delta?.tool_calls?.length) {
+              // Role-only chunk (e.g. very first chunk with delta:{role:"assistant"}).
+              // Skip — we already sent message_start above. Note: many OpenAI-compatible
+              // providers include `role:"assistant"` on EVERY chunk, so we must only
+              // match role-only chunks (no content/thinking/tool_calls), otherwise
+              // we'd drop every content delta below.
             } else if (choice.delta?.thinking !== undefined) {
               hasContent = true;
               if (currentBlockType !== 'thinking') {
@@ -591,7 +592,15 @@ async function handleStreaming(
                 }
                 if (tc.function?.arguments) output += `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: currentBlockIndex, delta: { type: 'input_json_delta', partial_json: tc.function.arguments } })}\n\n`;
               }
-            } else if (choice.finish_reason) {
+            }
+
+            // Some OpenAI-compatible providers (notably MiniMax M-series) put
+            // `finish_reason` in the SAME chunk as a final content delta
+            // (e.g. the closing </mm:think> text). Check it independently of
+            // the delta branches above so message_stop is always emitted
+            // when finish_reason arrives, regardless of what else is in
+            // the chunk.
+            if (choice.finish_reason && !streamFinished) {
               streamFinished = true;
               finishReason = choice.finish_reason;
               const stopMap: Record<string, string> = { 'stop': 'end_turn', 'length': 'max_tokens', 'tool_calls': 'tool_use', 'content_filter': 'end_turn' };
@@ -639,8 +648,9 @@ async function handleStreaming(
         if (wasCancelled && !streamFinished) {
           status = 'cancelled';
           errorMessage = 'Client disconnected';
-        } else if (!streamFinished && !hasContent) {
-          // Empty stream — no content was sent to client, safe to retry with next provider.
+        } else if (!hasContent) {
+          // Empty stream — no content was sent to client (regardless of whether
+          // finish_reason arrived), safe to retry with next provider.
           // Skip logUsage here: this is a retryable error, the final outcome will be logged
           // by the retry attempt (success) or the "All providers failed" block below.
           const pe = new Error('Stream ended without finish_reason') as Error & ProviderError;
