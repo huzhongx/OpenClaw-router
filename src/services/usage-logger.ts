@@ -13,6 +13,12 @@ interface UsageLogRecord {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  // Provider-reported prompt-cache hits. Displayed in dashboard so users
+  // can see how much of their input was served from cache (which MiniMax
+  // and Anthropic both offer as a discount path). Billing still charges
+  // full input_tokens for now — the cache_* fields are diagnostic only.
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
   costCents: number;
   latencyMs: number;
   ttftMs?: number | null;
@@ -65,8 +71,9 @@ function flushBatch(batch: (UsageLogRecord & { id: string })[]): void {
       INSERT INTO usage_logs (id, user_id, api_key_id, model_id, provider_id, provider_model_id,
         request_id, input_tokens, output_tokens, total_tokens, cost_cents, latency_ms,
         status, error_message, ip_address, user_agent, created_at,
-        provider_name, ttft_ms, finish_reason)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        provider_name, ttft_ms, finish_reason,
+        cache_read_input_tokens, cache_creation_input_tokens)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     // Insert one record at a time, no transaction wrapper. better-sqlite3
@@ -81,7 +88,8 @@ function flushBatch(batch: (UsageLogRecord & { id: string })[]): void {
           r.id, r.userId, r.apiKeyId, r.modelId, r.providerId, r.providerModelId,
           r.requestId, r.inputTokens, r.outputTokens, r.totalTokens, r.costCents, r.latencyMs,
           r.status, r.errorMessage, r.ipAddress, r.userAgent, ts,
-          r.providerName, r.ttftMs ?? null, r.finishReason ?? null
+          r.providerName, r.ttftMs ?? null, r.finishReason ?? null,
+          r.cacheReadInputTokens ?? 0, r.cacheCreationInputTokens ?? 0
         );
       } catch (err: any) {
         console.warn('Dropped usage log row', r.id, '—', err?.code || err?.message || 'unknown');

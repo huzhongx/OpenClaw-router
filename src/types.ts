@@ -185,6 +185,11 @@ export interface TokenUsage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  // Provider-reported prompt-cache hits. Anthropic sets these in
+  // message_start/message_delta; OpenAI-compatible providers like
+  // MiniMax put them under usage.prompt_tokens_details.cached_tokens.
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
 }
 
 export interface ProviderResponse {

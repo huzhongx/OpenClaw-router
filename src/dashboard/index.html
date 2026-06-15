@@ -1800,7 +1800,15 @@ function _usageRenderRows(data, page) {
   const totalPages = Math.ceil(data.total / data.limit);
   const tbody = document.getElementById('usageTableBody');
   if (!tbody) return;
-  tbody.innerHTML = data.logs.map(l => `
+  tbody.innerHTML = data.logs.map(l => {
+    const cacheRead = l.cache_read_input_tokens || 0;
+    const cacheCreate = l.cache_creation_input_tokens || 0;
+    const cacheTotal = cacheRead + cacheCreate;
+    // Cache hit % is relative to the prompt size the user is paying for:
+    // cache_read are tokens served from cache (often free/cheap at the
+    // provider), input_tokens is the full prompt size.
+    const cachePct = l.input_tokens > 0 ? Math.round(100 * cacheRead / l.input_tokens) : 0;
+    return `
     <tr>
       <td style="white-space:nowrap;font-size:12px">${fmtBeijing(l.created_at)}</td>
       <td style="color:var(--text-primary)">${esc(l.user_name)}</td>
@@ -1810,10 +1818,11 @@ function _usageRenderRows(data, page) {
       <td style="color:var(--accent-yellow)">${fmt$(l.cost_cents)}</td>
       <td>${l.latency_ms ? `<span style="color:${l.latency_ms >= 60000 ? 'var(--accent-red,#f44)' : l.latency_ms >= 30000 ? 'var(--accent-yellow,#fa0)' : 'var(--text-primary)'}">${l.latency_ms >= 1000 ? Math.round(l.latency_ms/1000) + 's' : l.latency_ms + 'ms'}</span>` : '-'}</td>
       <td>${fmtTtft(l.ttft_ms)}</td>
+      <td>${cacheTotal > 0 ? `<span style="color:var(--accent-blue,#3af)" title="read=${cacheRead} create=${cacheCreate}">${cachePct}% (${fmtNum(cacheTotal)})</span>` : '<span style="color:var(--text-secondary)">-</span>'}</td>
       <td><span class="badge ${l.status}">${l.status}</span></td>
       <td style="font-size:12px;color:${l.status === 'error' ? 'var(--accent-red,#f44)' : l.status === 'cancelled' ? 'var(--accent-yellow,#fa0)' : 'var(--text-secondary)'};max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(l.error_message || '')}">${l.error_message ? esc(l.error_message.split(';')[0].trim().slice(0, 80)) : '-'}</td>
     </tr>
-  `).join('');
+  `;}).join('');
   const emptyEl = document.getElementById('usageEmpty');
   if (emptyEl) emptyEl.style.display = data.logs.length === 0 ? '' : 'none';
   const pagEl = document.getElementById('usagePagination');
@@ -1910,7 +1919,7 @@ async function renderUsage(page = 1) {
     </div>
     <div class="table-wrap glass-static" style="padding:4px">
     <table>
-      <tr><th>Time</th><th>User</th><th>Model</th><th>Provider</th><th>Tokens</th><th>Cost</th><th>Latency</th><th>TTFT</th><th>Status</th><th>Reason</th></tr>
+      <tr><th>Time</th><th>User</th><th>Model</th><th>Provider</th><th>Tokens</th><th>Cost</th><th>Latency</th><th>TTFT</th><th>Cache</th><th>Status</th><th>Reason</th></tr>
       <tbody id="usageTableBody"></tbody>
     </table>
     </div>

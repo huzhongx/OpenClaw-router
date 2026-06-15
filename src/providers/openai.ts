@@ -100,6 +100,17 @@ export class OpenAIProvider extends BaseProvider {
 
         try {
           const parsed = JSON.parse(data);
+          // OpenAI-compatible providers (notably MiniMax) report cache hits
+          // under usage.prompt_tokens_details.cached_tokens. Hoist it to the
+          // top-level cache_read_input_tokens field so the rest of the router
+          // (normalizeUsage, logUsage) can treat it uniformly with Anthropic.
+          let usage = parsed.usage;
+          if (usage && usage.prompt_tokens_details?.cached_tokens != null) {
+            usage = {
+              ...usage,
+              cache_read_input_tokens: usage.prompt_tokens_details.cached_tokens,
+            };
+          }
           yield {
             id: parsed.id,
             model: parsed.model,
@@ -108,7 +119,7 @@ export class OpenAIProvider extends BaseProvider {
               delta: c.delta || {},
               finish_reason: c.finish_reason || null,
             })),
-            usage: parsed.usage || undefined,
+            usage: usage || undefined,
           };
         } catch {
           // Skip malformed chunks
@@ -173,6 +184,8 @@ export class OpenAIProvider extends BaseProvider {
         prompt_tokens: data.usage?.prompt_tokens || 0,
         completion_tokens: data.usage?.completion_tokens || 0,
         total_tokens: data.usage?.total_tokens || 0,
+        cache_read_input_tokens: data.usage?.prompt_tokens_details?.cached_tokens || 0,
+        cache_creation_input_tokens: 0,
       },
     };
   }

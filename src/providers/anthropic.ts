@@ -244,6 +244,8 @@ export class AnthropicProvider extends BaseProvider {
                 prompt_tokens: event.usage.input_tokens || 0,
                 completion_tokens: event.usage.output_tokens || 0,
                 total_tokens: (event.usage.input_tokens || 0) + (event.usage.output_tokens || 0),
+                cache_read_input_tokens: event.usage.cache_read_input_tokens || 0,
+                cache_creation_input_tokens: event.usage.cache_creation_input_tokens || 0,
               } : undefined,
             };
           } else if (eventType === 'message_start') {
@@ -259,6 +261,8 @@ export class AnthropicProvider extends BaseProvider {
                 prompt_tokens: event.message.usage.input_tokens || 0,
                 completion_tokens: 0,
                 total_tokens: event.message.usage.input_tokens || 0,
+                cache_read_input_tokens: event.message.usage.cache_read_input_tokens || 0,
+                cache_creation_input_tokens: event.message.usage.cache_creation_input_tokens || 0,
               } : undefined,
             };
           } else if (eventType === 'message_stop') {
@@ -464,6 +468,8 @@ export class AnthropicProvider extends BaseProvider {
         prompt_tokens: data.usage?.input_tokens || 0,
         completion_tokens: data.usage?.output_tokens || 0,
         total_tokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
+        cache_read_input_tokens: data.usage?.cache_read_input_tokens || 0,
+        cache_creation_input_tokens: data.usage?.cache_creation_input_tokens || 0,
       },
     };
   }

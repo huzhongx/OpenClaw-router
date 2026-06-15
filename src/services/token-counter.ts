@@ -18,10 +18,20 @@ export function emptyUsage(): TokenUsage {
 }
 
 export function normalizeUsage(usage: any): TokenUsage {
+  // Anthropic protocol uses cache_creation_input_tokens and
+  // cache_read_input_tokens at the top level. OpenAI-compatible providers
+  // (notably MiniMax) put them under usage.prompt_tokens_details.cached_tokens.
+  const cacheRead =
+    usage?.cache_read_input_tokens ||
+    usage?.prompt_tokens_details?.cached_tokens ||
+    0;
+  const cacheCreation = usage?.cache_creation_input_tokens || 0;
   return {
     prompt_tokens: usage?.prompt_tokens || 0,
     completion_tokens: usage?.completion_tokens || 0,
     total_tokens: usage?.total_tokens || (usage?.prompt_tokens || 0) + (usage?.completion_tokens || 0),
+    cache_read_input_tokens: cacheRead,
+    cache_creation_input_tokens: cacheCreation,
   };
 }
 
