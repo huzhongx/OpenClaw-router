@@ -241,9 +241,16 @@ export class AnthropicProvider extends BaseProvider {
                 finish_reason: finishMap[stopReason] || stopReason || null,
               }],
               usage: event.usage ? {
-                prompt_tokens: event.usage.input_tokens || 0,
+                // Anthropic reports input_tokens as the *new* (non-cached) tokens
+                // in this call. cache_read + cache_creation are additional tokens
+                // served from / written to the cache. The total prompt the model
+                // actually saw is the sum. Normalize to OpenAI's semantic where
+                // prompt_tokens is the full prompt size, so the rest of the
+                // router (billing, cache %, dashboard) treats both providers
+                // consistently.
+                prompt_tokens: (event.usage.input_tokens || 0) + (event.usage.cache_read_input_tokens || 0) + (event.usage.cache_creation_input_tokens || 0),
                 completion_tokens: event.usage.output_tokens || 0,
-                total_tokens: (event.usage.input_tokens || 0) + (event.usage.output_tokens || 0),
+                total_tokens: (event.usage.input_tokens || 0) + (event.usage.output_tokens || 0) + (event.usage.cache_read_input_tokens || 0) + (event.usage.cache_creation_input_tokens || 0),
                 cache_read_input_tokens: event.usage.cache_read_input_tokens || 0,
                 cache_creation_input_tokens: event.usage.cache_creation_input_tokens || 0,
               } : undefined,
@@ -258,7 +265,7 @@ export class AnthropicProvider extends BaseProvider {
                 finish_reason: null,
               }],
               usage: event.message?.usage ? {
-                prompt_tokens: event.message.usage.input_tokens || 0,
+                prompt_tokens: (event.message.usage.input_tokens || 0) + (event.message.usage.cache_read_input_tokens || 0) + (event.message.usage.cache_creation_input_tokens || 0),
                 completion_tokens: 0,
                 total_tokens: event.message.usage.input_tokens || 0,
                 cache_read_input_tokens: event.message.usage.cache_read_input_tokens || 0,
@@ -465,9 +472,9 @@ export class AnthropicProvider extends BaseProvider {
         finish_reason: finishMap[data.stop_reason] || data.stop_reason || null,
       }],
       usage: {
-        prompt_tokens: data.usage?.input_tokens || 0,
+        prompt_tokens: (data.usage?.input_tokens || 0) + (data.usage?.cache_read_input_tokens || 0) + (data.usage?.cache_creation_input_tokens || 0),
         completion_tokens: data.usage?.output_tokens || 0,
-        total_tokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
+        total_tokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0) + (data.usage?.cache_read_input_tokens || 0) + (data.usage?.cache_creation_input_tokens || 0),
         cache_read_input_tokens: data.usage?.cache_read_input_tokens || 0,
         cache_creation_input_tokens: data.usage?.cache_creation_input_tokens || 0,
       },
