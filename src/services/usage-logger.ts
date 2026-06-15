@@ -60,7 +60,7 @@ function flushSync(): void {
 function flushBatch(batch: (UsageLogRecord & { id: string })[]): void {
   try {
     const db = getDb();
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
     const stmt = db.prepare(`
       INSERT INTO usage_logs (id, user_id, api_key_id, model_id, provider_id, provider_model_id,
         request_id, input_tokens, output_tokens, total_tokens, cost_cents, latency_ms,
@@ -69,18 +69,24 @@ function flushBatch(batch: (UsageLogRecord & { id: string })[]): void {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const insertMany = db.transaction((records: typeof batch) => {
-      for (const r of records) {
+    // Insert one record at a time, no transaction wrapper. better-sqlite3
+    // auto-commits each statement, so a single bad row (e.g. orphaned
+    // api_key_id after the key was deleted) does not roll back the whole
+    // batch. The previous db.transaction() wrapper would silently drop
+    // every record in the batch on the first FK failure, leaving the
+    // queue in a permanent failure state once any orphan was queued.
+    for (const r of batch) {
+      try {
         stmt.run(
           r.id, r.userId, r.apiKeyId, r.modelId, r.providerId, r.providerModelId,
           r.requestId, r.inputTokens, r.outputTokens, r.totalTokens, r.costCents, r.latencyMs,
-          r.status, r.errorMessage, r.ipAddress, r.userAgent, now,
+          r.status, r.errorMessage, r.ipAddress, r.userAgent, ts,
           r.providerName, r.ttftMs ?? null, r.finishReason ?? null
         );
+      } catch (err: any) {
+        console.warn('Dropped usage log row', r.id, '—', err?.code || err?.message || 'unknown');
       }
-    });
-
-    insertMany(batch);
+    }
   } catch (err) {
     console.error('Failed to flush usage logs:', err);
     // Re-queue on failure (limit to prevent unbounded growth)
