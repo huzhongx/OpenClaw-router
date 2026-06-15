@@ -1818,7 +1818,7 @@ function _usageRenderRows(data, page) {
       <td style="color:var(--accent-yellow)">${fmt$(l.cost_cents)}</td>
       <td>${l.latency_ms ? `<span style="color:${l.latency_ms >= 60000 ? 'var(--accent-red,#f44)' : l.latency_ms >= 30000 ? 'var(--accent-yellow,#fa0)' : 'var(--text-primary)'}">${l.latency_ms >= 1000 ? Math.round(l.latency_ms/1000) + 's' : l.latency_ms + 'ms'}</span>` : '-'}</td>
       <td>${fmtTtft(l.ttft_ms)}</td>
-      <td>${cacheTotal > 0 ? `<span style="color:var(--accent-blue,#3af)" title="read=${cacheRead} create=${cacheCreate}">${cachePct}% (${fmtNum(cacheTotal)})</span>` : '<span style="color:var(--text-secondary)">-</span>'}</td>
+      <td>${cacheRead > 0 ? `<span style="color:var(--accent-blue,#3af)" title="cache hit: ${fmtNum(cacheRead)} of ${fmtNum(l.input_tokens)} input tokens (creation: ${fmtNum(cacheCreate)})">${cachePct}%</span>` : '<span style="color:var(--text-secondary)">-</span>'}</td>
       <td><span class="badge ${l.status}">${l.status}</span></td>
       <td style="font-size:12px;color:${l.status === 'error' ? 'var(--accent-red,#f44)' : l.status === 'cancelled' ? 'var(--accent-yellow,#fa0)' : 'var(--text-secondary)'};max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(l.error_message || '')}">${l.error_message ? esc(l.error_message.split(';')[0].trim().slice(0, 80)) : '-'}</td>
     </tr>
