@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { resolveRoute, resolveModel } from '../../providers/router';
 import { createProvider } from '../../providers/registry';
 import { deductUsage, calculateCost, toCents } from '../../services/billing';
-import { normalizeUsage, emptyUsage, isUsageValid } from '../../services/token-counter';
+import { normalizeUsage, emptyUsage, isUsageValid, estimateTokens } from '../../services/token-counter';
 import { logUsage } from '../../services/usage-logger';
 import { apiKeyAuth } from '../../middleware/auth';
 import { rateLimit } from '../../middleware/rate-limit';
@@ -522,6 +522,11 @@ async function handleStreaming(
         let finishReason: string | null = null;
         let hasContent = false; // Track if any meaningful chunk was written
         let hasToolCalls = false; // Track if tool_call deltas were sent
+        // Accumulate streamed text so we can estimate completion tokens if the
+        // upstream didn't return usage data (some providers drop usage on
+        // certain paths, e.g. Z.ai under load).
+        let accumulatedText = '';
+        let accumulatedThinking = '';
 
         // Use a simple Transform that wraps the conversion logic
         const { Transform, Readable } = await import('stream');
@@ -549,6 +554,7 @@ async function handleStreaming(
               // we'd drop every content delta below.
             } else if (choice.delta?.thinking !== undefined) {
               hasContent = true;
+              if (choice.delta.thinking) accumulatedThinking += choice.delta.thinking;
               if (currentBlockType !== 'thinking') {
                 if (currentBlockType !== null) {
                   output += `event: content_block_stop\ndata: {"type":"content_block_stop","index":${currentBlockIndex}}\n\n`;
@@ -571,6 +577,7 @@ async function handleStreaming(
               output += `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: currentBlockIndex, delta: { type: 'signature_delta', signature: choice.delta.thinking_signature } })}\n\n`;
             } else if (choice.delta?.content) {
               hasContent = true;
+              accumulatedText += choice.delta.content;
               if (currentBlockType !== 'text') {
                 currentBlockIndex++;
                 currentBlockType = 'text';
@@ -661,9 +668,45 @@ async function handleStreaming(
         } else if (!streamFinished) {
           status = 'error';
           errorMessage = 'Stream ended without finish_reason';
+        } else if (totalUsage.total_tokens === 0 && accumulatedText) {
+          // Content was delivered and stream finished, but upstream returned
+          // no usage data (some providers drop usage on certain paths, e.g.
+          // Z.ai under load). Treat as success — the user's request was
+          // satisfied — and estimate tokens from the request/response so
+          // billing still deducts something close to actual usage.
+          const promptText = [
+            typeof body.system === 'string' ? body.system : '',
+            ...((body.messages || []) as any[]).flatMap((m: any) => {
+              if (typeof m.content === 'string') return [m.content];
+              if (Array.isArray(m.content)) {
+                return m.content
+                  .filter((b: any) => b && (b.type === 'text' || b.type === 'tool_result'))
+                  .map((b: any) => typeof b === 'string' ? b : (b.text ?? (typeof b.content === 'string' ? b.content : '')));
+              }
+              return [];
+            }),
+          ].join('\n');
+          const estimatedPrompt = estimateTokens(promptText);
+          const estimatedCompletion = estimateTokens(accumulatedText) + estimateTokens(accumulatedThinking);
+          totalUsage = {
+            prompt_tokens: estimatedPrompt,
+            completion_tokens: estimatedCompletion,
+            total_tokens: estimatedPrompt + estimatedCompletion,
+          };
+          status = 'success';
+          // Keep a non-null note so the dashboard Reason column surfaces
+          // that usage was reconstructed, not provider-reported.
+          errorMessage = 'usage_missing_estimated';
         } else if (totalUsage.total_tokens === 0) {
-          status = 'error';
-          errorMessage = 'Stream completed but provider returned no usage data';
+          // Stream finished and no usage was reported, but we also have no
+          // real text content (only a role-only chunk or a thinking block).
+          // The client received an effectively empty assistant message —
+          // safe to retry with the next provider in the fallback chain.
+          const pe = new Error('Stream ended without finish_reason') as Error & ProviderError;
+          pe.status = 502;
+          pe.retryable = true;
+          pe.code = 'empty_stream';
+          throw pe;
         } else {
           status = 'success';
         }

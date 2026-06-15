@@ -5,7 +5,7 @@ import { autoRoute } from '../../services/auto-routing';
 import type { RoutingStrategy } from '../../types';
 import { createProvider } from '../../providers/registry';
 import { deductUsage, calculateCost, toCents } from '../../services/billing';
-import { normalizeUsage, emptyUsage, isUsageValid } from '../../services/token-counter';
+import { normalizeUsage, emptyUsage, isUsageValid, estimateTokens } from '../../services/token-counter';
 import { logUsage, initUsageLogger } from '../../services/usage-logger';
 import { apiKeyAuth } from '../../middleware/auth';
 import { rateLimit } from '../../middleware/rate-limit';
@@ -321,6 +321,11 @@ async function handleStreaming(
         let finishReason: string | null = null;
         let hasContent = false; // Track if any meaningful chunk was written
         let hasToolCalls = false; // Track if tool_call deltas were sent
+        // Accumulate streamed text so we can estimate completion tokens if the
+        // upstream didn't return usage data (some providers drop usage on
+        // certain paths, e.g. Z.ai under load).
+        let accumulatedText = '';
+        let accumulatedThinking = '';
 
         // Use Transform stream to convert provider chunks to SSE format
         const { Readable, Transform } = await import('stream');
@@ -346,6 +351,9 @@ async function handleStreaming(
             if (delta?.tool_calls?.length) {
               hasToolCalls = true;
             }
+            // Accumulate text for token estimation if usage is missing
+            if (delta?.content) accumulatedText += delta.content;
+            if (delta?.thinking) accumulatedThinking += delta.thinking;
 
             const sseData = `data: ${JSON.stringify({
               id: chunk.id || requestId,
@@ -401,9 +409,45 @@ async function handleStreaming(
         } else if (!streamFinished) {
           status = 'error';
           errorMessage = 'Stream ended without finish_reason';
+        } else if (totalUsage.total_tokens === 0 && accumulatedText) {
+          // Content was delivered and stream finished, but upstream returned
+          // no usage data (some providers drop usage on certain paths, e.g.
+          // Z.ai under load). Treat as success — the user's request was
+          // satisfied — and estimate tokens from the request/response so
+          // billing still deducts something close to actual usage.
+          const promptText = [
+            ...(body.messages || []).map((m: any) => {
+              if (typeof m.content === 'string') return m.content;
+              if (Array.isArray(m.content)) {
+                return m.content
+                  .filter((b: any) => b && b.type === 'text')
+                  .map((b: any) => b.text || '')
+                  .join('');
+              }
+              return '';
+            }),
+          ].join('\n');
+          const estimatedPrompt = estimateTokens(promptText);
+          const estimatedCompletion = estimateTokens(accumulatedText) + estimateTokens(accumulatedThinking);
+          totalUsage = {
+            prompt_tokens: estimatedPrompt,
+            completion_tokens: estimatedCompletion,
+            total_tokens: estimatedPrompt + estimatedCompletion,
+          };
+          status = 'success';
+          // Keep a non-null note so the dashboard Reason column surfaces
+          // that usage was reconstructed, not provider-reported.
+          errorMessage = 'usage_missing_estimated';
         } else if (totalUsage.total_tokens === 0) {
-          status = 'error';
-          errorMessage = 'Stream completed but provider returned no usage data';
+          // Stream finished and no usage was reported, but we also have no
+          // real text content (only a role-only chunk or a thinking block).
+          // The client received an effectively empty assistant message —
+          // safe to retry with the next provider in the fallback chain.
+          const pe = new Error('Stream ended without finish_reason') as Error & ProviderError;
+          pe.status = 502;
+          pe.retryable = true;
+          pe.code = 'empty_stream';
+          throw pe;
         } else {
           status = 'success';
         }
