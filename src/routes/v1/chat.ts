@@ -382,19 +382,32 @@ async function handleStreaming(
         });
 
         const readable = Readable.from(providerStream, { objectMode: true });
-        readable.on('error', (err) => {
-          if (!res.writableEnded) {
-            res.write(`data: ${JSON.stringify({ error: { message: String(err.message || err), type: 'upstream_error', code: 'stream_error' } })}\n\n`);
-            res.write('data: [DONE]\n\n');
-            res.end();
-          }
+        // Forward provider errors (e.g. retryable upstream 1305) to the outer
+        // for-loop catch so they can fall back to the next provider. Previously
+        // this handler wrote a stream_error SSE and ended res directly, which
+        // swallowed the error, bypassed the fallback chain, and gave clients a
+        // useless "stream_error" instead of the next provider's response.
+        //
+        // We now ONLY reject the await so the outer catch (around line 566)
+        // re-enters the for-loop's retryable path. We DO NOT res.end() here:
+        // the outer catch's `continue` branch keeps res alive for the next
+        // provider's stream to pipe into; if there is no next provider or all
+        // fail, the "All providers failed" block (around line 597) writes the
+        // error + [DONE] and res.end()s the response.
+        let settled = false;
+        const streamDone = new Promise<void>((resolve, reject) => {
+          readable.on('error', (err) => {
+            if (!settled) { settled = true; reject(err); }
+          });
+          sseTransform.on('error', (err) => {
+            if (!settled) { settled = true; reject(err); }
+          });
+          sseTransform.on('end', () => {
+            if (!settled) { settled = true; resolve(); }
+          });
         });
         readable.pipe(sseTransform).pipe(res, { end: false });
-
-        await new Promise<void>((resolve, reject) => {
-          sseTransform.on('error', reject);
-          sseTransform.on('end', resolve);
-        });
+        await streamDone;
 
         const wasCancelled = clientDisconnected;
         let status: 'success' | 'cancelled' | 'error';
@@ -530,6 +543,7 @@ async function handleStreaming(
         lastFailedEntry = entry;
 
         if (pe.retryable && i < entries.length - 1) {
+          console.error(`[fallback] ${entry.providerConfig.name}/${entry.providerModelId} failed (retryable): ${pe.status} ${message} — retrying with next provider`);
           res.write(`: Retrying with next provider...\n\n`);
           continue;
         }

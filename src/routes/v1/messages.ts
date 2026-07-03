@@ -32,7 +32,7 @@ const anthropicContentBlockSchema = z.object({
 const anthropicContentSchema = z.array(anthropicContentBlockSchema);
 
 const anthropicMessageSchema = z.object({
-  role: z.enum(['user', 'assistant']),
+  role: z.enum(['user', 'assistant', 'system']),
   content: z.union([z.string(), anthropicContentSchema]),
 });
 
@@ -779,6 +779,7 @@ async function handleStreaming(
         lastFailedEntry = entry;
 
         if (pe.retryable && i < entries.length - 1) {
+          console.error(`[fallback] ${entry.providerConfig.name}/${entry.providerModelId} failed (retryable): ${pe.status} ${message} — retrying with next provider`);
           res.write(`: Retrying with next provider...\n\n`);
           continue;
         }
