@@ -59,11 +59,13 @@ function flush(): void {
 
 function flushSync(): void {
   if (queue.length === 0) return;
+  (process as any).exiting = true;
   const batch = queue.splice(0);
   flushBatch(batch);
 }
 
 function flushBatch(batch: (UsageLogRecord & { id: string })[]): void {
+  const failed: (UsageLogRecord & { id: string })[] = [];
   try {
     const db = getDb();
     const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -93,13 +95,23 @@ function flushBatch(batch: (UsageLogRecord & { id: string })[]): void {
         );
       } catch (err: any) {
         console.warn('Dropped usage log row', r.id, '—', err?.code || err?.message || 'unknown');
+        failed.push(r);
       }
     }
   } catch (err) {
+    // getDb() or stmt.prepare() failed — re-queue everything
     console.error('Failed to flush usage logs:', err);
-    // Re-queue on failure (limit to prevent unbounded growth)
     if (queue.length < 1000) {
       queue.push(...batch);
+    }
+    return;
+  }
+  // On process exit (flushSync), do not re-queue failures — they'd loop forever
+  if (!(process as any).exiting) {
+    for (const r of failed) {
+      if (queue.length < 1000) {
+        queue.push(r);
+      }
     }
   }
 }
