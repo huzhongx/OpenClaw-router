@@ -273,6 +273,21 @@ export class AnthropicProvider extends BaseProvider {
             };
           } else if (eventType === 'message_stop') {
             return;
+          } else if (eventType === 'error') {
+            // Z.ai/Zhipu streams mid-flow errors as SSE event:error with HTTP 200
+            // (e.g. overloaded_error code 1305 "该模型当前访问量过大"). Without this
+            // branch the error event is silently skipped, the stream looks empty,
+            // and chat.ts falls back with a misleading "Stream ended without
+            // finish_reason" instead of the real upstream error.
+            const errType = event.error?.type || 'upstream_error';
+            const errMsg = event.error?.message || 'Stream error';
+            const errCode = event.error?.code;
+            const pe = new Error(`${errMsg}${errCode ? ` [${errCode}]` : ''}`) as Error & ProviderError;
+            pe.status = errType === 'overloaded_error' ? 529 : 502;
+            pe.code = errType;
+            // Overloaded/rate-limit/type-5xx are transient → safe to retry on next provider.
+            pe.retryable = errType === 'overloaded_error' || errType === 'rate_limit_error' || /5\d\d/.test(String(pe.status));
+            throw pe;
           }
         } catch {
           // Skip malformed chunks
