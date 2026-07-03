@@ -27,11 +27,10 @@ export class GeminiProvider extends BaseProvider {
     if (request.tools?.length) body.tools = this.convertTools(request.tools);
 
     const url = `${this.baseUrl}/models/${request.model}:generateContent?key=${this.apiKey}`;
-    const res = await fetch(url, {
+    const res = await this.fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.timeout),
     });
 
     if (!res.ok) {

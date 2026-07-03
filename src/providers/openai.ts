@@ -11,11 +11,10 @@ import { BaseProvider } from './base';
 export class OpenAIProvider extends BaseProvider {
   async chat(request: ProviderRequest): Promise<ProviderResponse> {
     const body = this.buildBody(request);
-    const res = await fetch(`${this.baseUrl}/chat/completions`, {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.timeout),
     });
 
     if (!res.ok) {

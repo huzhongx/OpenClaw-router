@@ -55,11 +55,10 @@ export class AnthropicProvider extends BaseProvider {
     if (request.thinking) body.thinking = request.thinking;
     if (request.user) body.metadata = { user_id: request.user };
 
-    const res = await fetch(`${this.baseUrl}/messages`, {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/messages`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.timeout),
     });
 
     if (!res.ok) {

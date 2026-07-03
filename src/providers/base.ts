@@ -1,5 +1,6 @@
 import type {
   ProviderConfig,
+  ProviderError,
   ProviderRequest,
   ProviderResponse,
   StreamChunk,
@@ -42,5 +43,31 @@ export abstract class BaseProvider {
     signal.addEventListener('abort', onExternal, { once: true });
     ac.signal.addEventListener('abort', () => { clearTimeout(timer); signal.removeEventListener('abort', onExternal); }, { once: true });
     return ac.signal;
+  }
+
+  /**
+   * fetch with the provider's timeout. Surfaces timeouts as retryable
+   * ProviderErrors (status 504, code upstream_timeout) so the fallback loop
+   * in chat.ts/messages.ts can switch to the next provider — mirroring the
+   * connect-timeout handling in chatStream. Non-timeout errors (network, DNS,
+   * etc.) are rethrown unchanged.
+   *
+   * Used by the non-streaming chat() path; without this, a 30s upstream hang
+   * throws a bare native TimeoutError that carries no retryable flag and so
+   * never triggers fallback.
+   */
+  protected async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+    try {
+      return await fetch(url, { ...init, signal: AbortSignal.timeout(this.timeout) });
+    } catch (err: any) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        const pe = new Error(`Upstream timeout (${Math.round(this.timeout / 1000)}s)`) as Error & ProviderError;
+        pe.status = 504;
+        pe.retryable = true;
+        pe.code = 'upstream_timeout';
+        throw pe;
+      }
+      throw err;
+    }
   }
 }
